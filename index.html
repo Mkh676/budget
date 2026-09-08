@@ -400,6 +400,7 @@ function BudgetTracker({ household, onLogout }) {
     (a.date || "").trim() === (b.date || "").trim() &&
     Math.abs((Number(a.amount) || 0) - (Number(b.amount) || 0)) < 0.005 &&
     normLabel(a.label) === normLabel(b.label);
+  const signatureOf = (t) => (t.date || "").trim() + "|" + (Number(t.amount) || 0).toFixed(2) + "|" + normLabel(t.label);
 
   const findDuplicateInMonth = (m, candidate, excludeId) =>
     (transactions[m] || []).find((tx) => tx.id !== excludeId && isDuplicateOf(tx, candidate));
@@ -415,6 +416,17 @@ function BudgetTracker({ household, onLogout }) {
     const amountIdx = header.findIndex((h) => h.includes("amount") || h.includes("montant"));
     if (dateIdx === -1 || labelIdx === -1 || amountIdx === -1) return "invalid";
 
+    // Count how many transactions with each exact signature are already saved
+    // for this month — only THAT many repeats in the new file count as
+    // duplicates. Extra repeats beyond that (e.g. two separate same-day,
+    // same-amount purchases at the same place) are treated as genuinely new.
+    const existingCounts = {};
+    for (const tx of transactions[selectedMonth] || []) {
+      const sig = signatureOf(tx);
+      existingCounts[sig] = (existingCounts[sig] || 0) + 1;
+    }
+    const consumed = {};
+
     const rows = [];
     for (let i = 1; i < lines.length; i++) {
       const cells = splitLine(lines[i]);
@@ -424,7 +436,11 @@ function BudgetTracker({ household, onLogout }) {
       if (isNaN(amount) || amount >= 0) continue; // only keep expenses (negative amounts)
       const label = cells[labelIdx] || "(sans libellé)";
       const candidate = { date: cells[dateIdx] || "", label, amount: Math.abs(amount) };
-      const isDup = !!findDuplicateInMonth(selectedMonth, candidate, null) || rows.some((r) => isDuplicateOf(r, candidate));
+      const sig = signatureOf(candidate);
+      const allowed = existingCounts[sig] || 0;
+      const used = consumed[sig] || 0;
+      const isDup = used < allowed;
+      consumed[sig] = used + 1;
       rows.push({
         id: uid("tx"),
         date: candidate.date,
@@ -474,11 +490,12 @@ function BudgetTracker({ household, onLogout }) {
   const cancelImport = () => setImportRows(null);
 
   // ---------- Transaction log (editable, per month) ----------
-  const [txErrors, setTxErrors] = useState({}); // { [txId]: "error message" }
+  const [txErrors, setTxErrors] = useState({}); // { [txId]: "error message" }, kept for inline highlight too
 
   const flagTxError = (txId, message) => {
+    window.alert(message);
     setTxErrors((e) => ({ ...e, [txId]: message }));
-    setTimeout(() => setTxErrors((e) => { const { [txId]: _, ...rest } = e; return rest; }), 4000);
+    setTimeout(() => setTxErrors((e) => { const { [txId]: _, ...rest } = e; return rest; }), 6000);
   };
 
   const updateTransactionCategory = (m, txId, catId) => {
@@ -595,7 +612,16 @@ function BudgetTracker({ household, onLogout }) {
                   <span title={r.label}>{r.label.length > 40 ? r.label.slice(0, 39) + "…" : r.label}</span>
                   <span style={{ textAlign: "right" }}>{fmt(r.amount)}</span>
                   {r.duplicate ? (
-                    <span style={{ fontSize: 11, color: "var(--red)" }}>Doublon — déjà présent</span>
+                    <span style={{ fontSize: 11, color: "var(--red)" }}>
+                      Doublon — déjà présent{" "}
+                      <button
+                        className="add-line"
+                        style={{ display: "inline", padding: 0, fontSize: 11 }}
+                        onClick={() => setImportRows((rows) => rows.map((row) => (row.id === r.id ? { ...row, duplicate: false, categoryId: guessCategoryId(row.label) } : row)))}
+                      >
+                        (pas un doublon ?)
+                      </button>
+                    </span>
                   ) : (
                     <select value={r.categoryId} onChange={(e) => setImportRowCategory(r.id, e.target.value)}>
                       <option value="">— Ignorer —</option>
