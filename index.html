@@ -376,6 +376,8 @@ function BudgetTracker({ household, onLogout, onRename }) {
   };
   const [editingMonthId, setEditingMonthId] = useState(null);
   const [editingMonthLabel, setEditingMonthLabel] = useState("");
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
   const startEditMonth = (id) => {
     const current = months.find((m) => m.id === id);
     setEditingMonthId(id);
@@ -554,8 +556,6 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
   if (!loaded || !selectedMonth) return <div style={{ padding: 40 }}>Chargement du budget…</div>;
 
-  const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState("");
   const commitNameEdit = () => {
     const name = nameDraft.trim();
     if (name && name !== household.name) onRename(name);
