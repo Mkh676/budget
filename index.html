@@ -50,6 +50,8 @@
   .tab.active { background: var(--paper); color: var(--ink); border-color: var(--ink); font-weight: 600; }
   .tab-add { font-family: var(--font-mono); font-size: 18px; line-height: 1; padding: 6px 12px; background: transparent; border: 1px dashed var(--rule); border-radius: 6px; cursor: pointer; color: var(--gold); }
   .tab-remove { margin-left: 6px; color: var(--red); cursor: pointer; font-size: 11px; }
+  .tab-edit-input { font-family: var(--font-mono); font-size: 13px; border: none; border-bottom: 1px solid var(--ink); background: transparent; color: var(--ink); width: 90px; padding: 0; }
+  .title-edit-input { font-family: var(--font-display); font-size: 30px; font-weight: 600; border: none; border-bottom: 2px solid var(--ink); background: transparent; color: var(--ink); padding: 0; }
   .panel { max-width: 900px; margin: 0 auto 26px; border: 1px solid var(--rule); background: var(--paper); }
   .panel-title { font-family: var(--font-display); font-size: 17px; font-weight: 600; padding: 10px 16px; border-bottom: 1px solid var(--rule); background: var(--paper-alt); }
   .row { display: grid; grid-template-columns: 1fr 140px 32px; gap: 10px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--rule); }
@@ -372,12 +374,19 @@ function BudgetTracker({ household, onLogout, onRename }) {
     setMonths((ms) => ms.filter((m) => m.id !== id));
     if (selectedMonth === id) { const rest = months.filter((m) => m.id !== id); if (rest.length) setSelectedMonth(rest[0].id); }
   };
-  const renameMonth = (id) => {
+  const [editingMonthId, setEditingMonthId] = useState(null);
+  const [editingMonthLabel, setEditingMonthLabel] = useState("");
+  const startEditMonth = (id) => {
     const current = months.find((m) => m.id === id);
-    const label = window.prompt("Nouveau nom pour cet onglet :", current ? current.label : "");
-    if (!label || !label.trim()) return;
-    setMonths((ms) => ms.map((m) => (m.id === id ? { ...m, label: label.trim() } : m)));
+    setEditingMonthId(id);
+    setEditingMonthLabel(current ? current.label : "");
   };
+  const commitEditMonth = () => {
+    const label = editingMonthLabel.trim();
+    if (label) setMonths((ms) => ms.map((m) => (m.id === editingMonthId ? { ...m, label } : m)));
+    setEditingMonthId(null);
+  };
+  const cancelEditMonth = () => setEditingMonthId(null);
   const updateIncomeLine = (m, lineId, field, v) => setIncome((inc) => ({ ...inc, [m]: (inc[m] || []).map((l) => (l.id === lineId ? { ...l, [field]: v } : l)) }));
   const addIncomeLine = (m) => setIncome((inc) => ({ ...inc, [m]: [...(inc[m] || []), { id: uid("inc"), label: "Nouveau revenu", amount: 0 }] }));
   const removeIncomeLine = (m, lineId) => setIncome((inc) => ({ ...inc, [m]: (inc[m] || []).filter((l) => l.id !== lineId) }));
@@ -545,6 +554,14 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
   if (!loaded || !selectedMonth) return <div style={{ padding: 40 }}>Chargement du budget…</div>;
 
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const commitNameEdit = () => {
+    const name = nameDraft.trim();
+    if (name && name !== household.name) onRename(name);
+    setEditingName(false);
+  };
+
   const barData = categories.map((c) => ({ name: c.name.length > 14 ? c.name.slice(0, 13) + "…" : c.name, Budget: Number(c.budget) || 0, Réel: categoryTotal(selectedMonth, c.id) }));
   const trendData = months.map((m) => ({ name: m.label, Restant: Math.round(monthRestant(m.id)) }));
   const curIncomeLines = income[selectedMonth] || [];
@@ -558,17 +575,23 @@ function BudgetTracker({ household, onLogout, onRename }) {
     <div className="ledger">
       <div className="ledger-head">
         <div>
-          <h1 className="ledger-title" style={{ display: "inline" }}>{household.name}</h1>
-          <button
-            className="reset-btn"
-            style={{ marginLeft: 10, verticalAlign: "middle" }}
-            onClick={() => {
-              const newName = window.prompt("Nouveau nom du foyer :", household.name);
-              if (newName && newName.trim() && newName.trim() !== household.name) onRename(newName.trim());
-            }}
-          >
-            ✎ Renommer
-          </button>
+          {editingName ? (
+            <input
+              autoFocus
+              className="title-edit-input"
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={commitNameEdit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitNameEdit();
+                if (e.key === "Escape") setEditingName(false);
+              }}
+            />
+          ) : (
+            <h1 className="ledger-title" style={{ display: "inline", cursor: "pointer" }} title="Cliquer pour renommer" onClick={() => { setNameDraft(household.name); setEditingName(true); }}>
+              {household.name} <span style={{ fontSize: 14, color: "var(--ink-soft)" }}>✎</span>
+            </h1>
+          )}
           <div className="ledger-sub">Revenus, épargne et dépenses — partagé et modifiable en direct</div>
         </div>
         <div className="head-actions">
@@ -583,13 +606,30 @@ function BudgetTracker({ household, onLogout, onRename }) {
           <div
             key={m.id}
             className={"tab" + (m.id === selectedMonth ? " active" : "")}
-            onClick={() => setSelectedMonth(m.id)}
-            onDoubleClick={(e) => { e.stopPropagation(); renameMonth(m.id); }}
+            onClick={() => { if (editingMonthId !== m.id) setSelectedMonth(m.id); }}
+            onDoubleClick={(e) => { e.stopPropagation(); startEditMonth(m.id); }}
             title="Double-cliquer pour renommer"
           >
-            {m.label}
-            <span className="tab-remove" style={{ color: "var(--ink-soft)" }} onClick={(e) => { e.stopPropagation(); renameMonth(m.id); }}>✎</span>
-            {months.length > 1 && <span className="tab-remove" onClick={(e) => { e.stopPropagation(); removeMonth(m.id); }}>✕</span>}
+            {editingMonthId === m.id ? (
+              <input
+                autoFocus
+                className="tab-edit-input"
+                value={editingMonthLabel}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => setEditingMonthLabel(e.target.value)}
+                onBlur={commitEditMonth}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitEditMonth();
+                  if (e.key === "Escape") cancelEditMonth();
+                }}
+              />
+            ) : (
+              <React.Fragment>
+                {m.label}
+                <span className="tab-remove" style={{ color: "var(--ink-soft)" }} onClick={(e) => { e.stopPropagation(); startEditMonth(m.id); }}>✎</span>
+              </React.Fragment>
+            )}
+            {months.length > 1 && editingMonthId !== m.id && <span className="tab-remove" onClick={(e) => { e.stopPropagation(); removeMonth(m.id); }}>✕</span>}
           </div>
         ))}
         <button className="tab-add" onClick={addMonth} title="Ajouter un mois">+</button>
