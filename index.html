@@ -372,6 +372,12 @@ function BudgetTracker({ household, onLogout, onRename }) {
     setMonths((ms) => ms.filter((m) => m.id !== id));
     if (selectedMonth === id) { const rest = months.filter((m) => m.id !== id); if (rest.length) setSelectedMonth(rest[0].id); }
   };
+  const renameMonth = (id) => {
+    const current = months.find((m) => m.id === id);
+    const label = window.prompt("Nouveau nom pour cet onglet :", current ? current.label : "");
+    if (!label || !label.trim()) return;
+    setMonths((ms) => ms.map((m) => (m.id === id ? { ...m, label: label.trim() } : m)));
+  };
   const updateIncomeLine = (m, lineId, field, v) => setIncome((inc) => ({ ...inc, [m]: (inc[m] || []).map((l) => (l.id === lineId ? { ...l, [field]: v } : l)) }));
   const addIncomeLine = (m) => setIncome((inc) => ({ ...inc, [m]: [...(inc[m] || []), { id: uid("inc"), label: "Nouveau revenu", amount: 0 }] }));
   const removeIncomeLine = (m, lineId) => setIncome((inc) => ({ ...inc, [m]: (inc[m] || []).filter((l) => l.id !== lineId) }));
@@ -574,8 +580,15 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
       <div className="tabs">
         {months.map((m) => (
-          <div key={m.id} className={"tab" + (m.id === selectedMonth ? " active" : "")} onClick={() => setSelectedMonth(m.id)}>
+          <div
+            key={m.id}
+            className={"tab" + (m.id === selectedMonth ? " active" : "")}
+            onClick={() => setSelectedMonth(m.id)}
+            onDoubleClick={(e) => { e.stopPropagation(); renameMonth(m.id); }}
+            title="Double-cliquer pour renommer"
+          >
             {m.label}
+            <span className="tab-remove" style={{ color: "var(--ink-soft)" }} onClick={(e) => { e.stopPropagation(); renameMonth(m.id); }}>✎</span>
             {months.length > 1 && <span className="tab-remove" onClick={(e) => { e.stopPropagation(); removeMonth(m.id); }}>✕</span>}
           </div>
         ))}
