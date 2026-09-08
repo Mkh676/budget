@@ -394,6 +394,16 @@ function BudgetTracker({ household, onLogout }) {
     return "";
   };
 
+  // ---------- Duplicate detection (same date + same amount + same label) ----------
+  const normLabel = (s) => (s || "").trim().toLowerCase();
+  const isDuplicateOf = (a, b) =>
+    (a.date || "").trim() === (b.date || "").trim() &&
+    Math.abs((Number(a.amount) || 0) - (Number(b.amount) || 0)) < 0.005 &&
+    normLabel(a.label) === normLabel(b.label);
+
+  const findDuplicateInMonth = (m, candidate, excludeId) =>
+    (transactions[m] || []).find((tx) => tx.id !== excludeId && isDuplicateOf(tx, candidate));
+
   const parseCsv = (text) => {
     const lines = text.split(/\r\n|\n/).filter((l) => l.trim().length > 0);
     if (lines.length < 2) return [];
@@ -413,12 +423,15 @@ function BudgetTracker({ household, onLogout }) {
       const amount = parseFloat(rawAmount);
       if (isNaN(amount) || amount >= 0) continue; // only keep expenses (negative amounts)
       const label = cells[labelIdx] || "(sans libellé)";
+      const candidate = { date: cells[dateIdx] || "", label, amount: Math.abs(amount) };
+      const isDup = !!findDuplicateInMonth(selectedMonth, candidate, null) || rows.some((r) => isDuplicateOf(r, candidate));
       rows.push({
         id: uid("tx"),
-        date: cells[dateIdx] || "",
+        date: candidate.date,
         label,
-        amount: Math.abs(amount),
-        categoryId: guessCategoryId(label),
+        amount: candidate.amount,
+        categoryId: isDup ? "" : guessCategoryId(label),
+        duplicate: isDup,
       });
     }
     return rows;
@@ -453,14 +466,21 @@ function BudgetTracker({ household, onLogout }) {
   };
 
   const confirmImport = () => {
-    const classified = importRows.filter((r) => r.categoryId);
-    setTransactions((t) => ({ ...t, [selectedMonth]: [...(t[selectedMonth] || []), ...classified] }));
+    const classified = importRows.filter((r) => r.categoryId && !r.duplicate);
+    setTransactions((t) => ({ ...t, [selectedMonth]: [...(t[selectedMonth] || []), ...classified.map(({ duplicate, ...r }) => r)] }));
     setImportRows(null);
   };
 
   const cancelImport = () => setImportRows(null);
 
   // ---------- Transaction log (editable, per month) ----------
+  const [txErrors, setTxErrors] = useState({}); // { [txId]: "error message" }
+
+  const flagTxError = (txId, message) => {
+    setTxErrors((e) => ({ ...e, [txId]: message }));
+    setTimeout(() => setTxErrors((e) => { const { [txId]: _, ...rest } = e; return rest; }), 4000);
+  };
+
   const updateTransactionCategory = (m, txId, catId) => {
     if (catId === "__new__") {
       const name = window.prompt("Nom de la nouvelle catégorie ?");
@@ -471,8 +491,20 @@ function BudgetTracker({ household, onLogout }) {
     }
     setTransactions((t) => ({ ...t, [m]: (t[m] || []).map((tx) => (tx.id === txId ? { ...tx, categoryId: catId } : tx)) }));
   };
-  const updateTransactionField = (m, txId, field, value) =>
-    setTransactions((t) => ({ ...t, [m]: (t[m] || []).map((tx) => (tx.id === txId ? { ...tx, [field]: value } : tx)) }));
+  const updateTransactionField = (m, txId, field, value) => {
+    const current = (transactions[m] || []).find((tx) => tx.id === txId);
+    if (!current) return;
+    const candidate = { ...current, [field]: value };
+    const isComplete = (candidate.date || "").trim() !== "" && Number(candidate.amount) > 0 && (candidate.label || "").trim() !== "";
+    if (isComplete) {
+      const dup = findDuplicateInMonth(m, candidate, txId);
+      if (dup) {
+        flagTxError(txId, "⚠️ Doublon : une dépense identique (même date, même montant, même libellé) existe déjà — modification bloquée.");
+        return; // block the change
+      }
+    }
+    setTransactions((t) => ({ ...t, [m]: (t[m] || []).map((tx) => (tx.id === txId ? candidate : tx)) }));
+  };
   const removeTransaction = (m, txId) =>
     setTransactions((t) => ({ ...t, [m]: (t[m] || []).filter((tx) => tx.id !== txId) }));
   const addManualTransaction = (m) =>
@@ -551,23 +583,32 @@ function BudgetTracker({ household, onLogout }) {
         )}
         {importRows && importRows.length > 0 && (
           <React.Fragment>
-            <div className="import-summary">{importRows.length} transaction(s) trouvée(s) — assignez une catégorie à chacune (ou laissez « Ignorer »).</div>
+            <div className="import-summary">
+              {importRows.length} transaction(s) trouvée(s)
+              {importRows.some((r) => r.duplicate) && <span> — {importRows.filter((r) => r.duplicate).length} doublon(s) détecté(s) et exclu(s) automatiquement</span>}
+              . Assignez une catégorie à chacune (ou laissez « Ignorer »).
+            </div>
             <div className="import-preview">
               {importRows.map((r) => (
-                <div className="import-row" key={r.id}>
+                <div className="import-row" key={r.id} style={r.duplicate ? { opacity: 0.55 } : undefined}>
                   <span>{r.date}</span>
                   <span title={r.label}>{r.label.length > 40 ? r.label.slice(0, 39) + "…" : r.label}</span>
                   <span style={{ textAlign: "right" }}>{fmt(r.amount)}</span>
-                  <select value={r.categoryId} onChange={(e) => setImportRowCategory(r.id, e.target.value)}>
-                    <option value="">— Ignorer —</option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                    <option value="__new__">+ Nouvelle catégorie…</option>
-                  </select>
+                  {r.duplicate ? (
+                    <span style={{ fontSize: 11, color: "var(--red)" }}>Doublon — déjà présent</span>
+                  ) : (
+                    <select value={r.categoryId} onChange={(e) => setImportRowCategory(r.id, e.target.value)}>
+                      <option value="">— Ignorer —</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                      <option value="__new__">+ Nouvelle catégorie…</option>
+                    </select>
+                  )}
                 </div>
               ))}
             </div>
+            <div className="import-summary" style={{ paddingTop: 0 }}>{importRows.filter((r) => !r.duplicate).length} seront importées ; {importRows.filter((r) => r.duplicate).length} ignorées comme doublons.</div>
             <div className="import-actions">
               <button className="import-confirm" onClick={confirmImport}>Importer les dépenses classées</button>
               <button className="import-cancel" onClick={cancelImport}>Annuler</button>
@@ -591,36 +632,41 @@ function BudgetTracker({ household, onLogout }) {
             ) : (
               <div className="import-preview">
                 {monthTransactions(selectedMonth).map((tx) => (
-                  <div className="import-row" key={tx.id}>
-                    <input
-                      type="text"
-                      style={{ fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4, width: "100%" }}
-                      value={tx.date}
-                      placeholder="date"
-                      onChange={(e) => updateTransactionField(selectedMonth, tx.id, "date", e.target.value)}
-                    />
-                    <input
-                      type="text"
-                      style={{ fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4, width: "100%" }}
-                      value={tx.label}
-                      placeholder="libellé"
-                      onChange={(e) => updateTransactionField(selectedMonth, tx.id, "label", e.target.value)}
-                    />
-                    <input
-                      type="number"
-                      style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4 }}
-                      value={tx.amount}
-                      onChange={(e) => updateTransactionField(selectedMonth, tx.id, "amount", parseFloat(e.target.value) || 0)}
-                    />
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <select value={tx.categoryId} onChange={(e) => updateTransactionCategory(selectedMonth, tx.id, e.target.value)}>
-                        <option value="">— Ignorer —</option>
-                        {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
-                        <option value="__new__">+ Nouvelle catégorie…</option>
-                      </select>
-                      <button className="icon-btn" onClick={() => removeTransaction(selectedMonth, tx.id)}>✕</button>
+                  <React.Fragment key={tx.id}>
+                    <div className="import-row">
+                      <input
+                        type="text"
+                        style={{ fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4, width: "100%" }}
+                        value={tx.date}
+                        placeholder="date"
+                        onChange={(e) => updateTransactionField(selectedMonth, tx.id, "date", e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        style={{ fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4, width: "100%" }}
+                        value={tx.label}
+                        placeholder="libellé"
+                        onChange={(e) => updateTransactionField(selectedMonth, tx.id, "label", e.target.value)}
+                      />
+                      <input
+                        type="number"
+                        style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4 }}
+                        value={tx.amount}
+                        onChange={(e) => updateTransactionField(selectedMonth, tx.id, "amount", parseFloat(e.target.value) || 0)}
+                      />
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <select value={tx.categoryId} onChange={(e) => updateTransactionCategory(selectedMonth, tx.id, e.target.value)}>
+                          <option value="">— Ignorer —</option>
+                          {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                          <option value="__new__">+ Nouvelle catégorie…</option>
+                        </select>
+                        <button className="icon-btn" onClick={() => removeTransaction(selectedMonth, tx.id)}>✕</button>
+                      </div>
                     </div>
-                  </div>
+                    {txErrors[tx.id] && (
+                      <div style={{ fontSize: 11, color: "var(--red)", padding: "0 16px 8px" }}>{txErrors[tx.id]}</div>
+                    )}
+                  </React.Fragment>
                 ))}
               </div>
             )}
