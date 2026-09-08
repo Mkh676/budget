@@ -110,14 +110,22 @@ function uid(prefix) { return prefix + "_" + Math.random().toString(36).slice(2,
 
 const seedCategories = [
   { id: "loyer", name: "Loyer + parking", budget: 1675 },
+  { id: "emprunt", name: "Emprunt maison", budget: 0 },
+  { id: "assurance_emprunt", name: "Assurance emprunteur", budget: 0 },
+  { id: "taxe_fonciere", name: "Taxe foncière", budget: 0 },
+  { id: "taxe_ordures", name: "Taxe enlèvement ordures", budget: 0 },
   { id: "electricite", name: "Électricité", budget: 50 },
   { id: "internet", name: "Internet", budget: 26 },
+  { id: "eau", name: "Eau", budget: 0 },
   { id: "assurance_habitation", name: "Assurance habitation", budget: 32 },
+  { id: "travaux", name: "Travaux / équipement maison", budget: 0 },
   { id: "voiture_assurance", name: "Voiture assurance", budget: 93 },
   { id: "voiture_entretien", name: "Voiture entretien", budget: 17 },
   { id: "essence", name: "Essence", budget: 100 },
+  { id: "pets", name: "Pets", budget: 25 },
   { id: "sante", name: "Santé – divers", budget: 20 },
   { id: "alimentation", name: "Alimentation + courses maison", budget: 500 },
+  { id: "autres", name: "Autres", budget: 0 },
   { id: "netflix", name: "Netflix ou Prime", budget: 8 },
   { id: "resto", name: "Resto", budget: 200 },
   { id: "weekends", name: "Weekends", budget: 200 },
@@ -260,7 +268,7 @@ function HouseholdSetup({ session, onReady }) {
 }
 
 // ---------- Main budget tracker (shared, per household) ----------
-function BudgetTracker({ household, onLogout }) {
+function BudgetTracker({ household, onLogout, onRename }) {
   const [loaded, setLoaded] = useState(false);
   const [categories, setCategories] = useState([]);
   const [months, setMonths] = useState([]);
@@ -384,6 +392,7 @@ function BudgetTracker({ household, onLogout }) {
       { ids: ["assurance_habitation"], words: ["assurance habitation", "maif", "macif", "matmut"] },
       { ids: ["voiture_assurance"], words: ["assurance auto", "assurance vehicule"] },
       { ids: ["sante"], words: ["pharmacie", "medecin", "docteur", "dentiste"] },
+      { ids: ["pets"], words: ["veto", "vétérinaire", "veterinaire", "clinique veterinaire", "maxizoo", "animalerie", "wanimo", "zooplus"] },
     ];
     for (const rule of rules) {
       if (rule.words.some((w) => l.includes(w))) {
@@ -543,7 +552,17 @@ function BudgetTracker({ household, onLogout }) {
     <div className="ledger">
       <div className="ledger-head">
         <div>
-          <h1 className="ledger-title">{household.name}</h1>
+          <h1 className="ledger-title" style={{ display: "inline" }}>{household.name}</h1>
+          <button
+            className="reset-btn"
+            style={{ marginLeft: 10, verticalAlign: "middle" }}
+            onClick={() => {
+              const newName = window.prompt("Nouveau nom du foyer :", household.name);
+              if (newName && newName.trim() && newName.trim() !== household.name) onRename(newName.trim());
+            }}
+          >
+            ✎ Renommer
+          </button>
           <div className="ledger-sub">Revenus, épargne et dépenses — partagé et modifiable en direct</div>
         </div>
         <div className="head-actions">
@@ -769,11 +788,20 @@ function App() {
 
   const logout = async () => { await sb.auth.signOut(); setHousehold(null); };
 
+  const renameHousehold = async (newName) => {
+    const { error } = await sb.from("households").update({ name: newName }).eq("id", household.id);
+    if (error) {
+      window.alert("Impossible de renommer le foyer : " + error.message);
+      return;
+    }
+    setHousehold((h) => ({ ...h, name: newName }));
+  };
+
   if (loadingSession) return <div style={{ padding: 40 }}>Chargement…</div>;
   if (!session) return <AuthScreen />;
   if (checkingHousehold) return <div style={{ padding: 40 }}>Chargement…</div>;
   if (!household) return <HouseholdSetup session={session} onReady={setHousehold} />;
-  return <BudgetTracker household={household} onLogout={logout} />;
+  return <BudgetTracker household={household} onLogout={logout} onRename={renameHousehold} />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
