@@ -695,12 +695,16 @@ function BudgetTracker({ household, onLogout, onRename }) {
             <button className="icon-btn" onClick={() => removeIncomeLine(selectedMonth, l.id)}>✕</button>
           </div>
         ))}
-        <button className="add-line" onClick={() => addIncomeLine(selectedMonth)}>+ Ajouter une ligne de revenu</button>
-        {salaireCat && salaryFromTransactions(selectedMonth) !== 0 && (
-          <div className="import-hint" style={{ padding: "0 16px 8px" }}>
-            + {fmt(salaryFromTransactions(selectedMonth))} depuis les transactions catégorisées « {salaireCat.name} »
+        {salaireCat && (
+          <div className="row">
+            <span style={{ fontStyle: "italic", color: "var(--ink-soft)" }} title={`Total automatique des transactions catégorisées « ${salaireCat.name} »`}>
+              {salaireCat.name} (auto)
+            </span>
+            <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--ink-soft)" }}>{fmt(salaryFromTransactions(selectedMonth))}</span>
+            <span></span>
           </div>
         )}
+        <button className="add-line" onClick={() => addIncomeLine(selectedMonth)}>+ Ajouter une ligne de revenu</button>
         <div className="totals-row"><span>Total revenus</span><span>{fmt(curIncomeTotal)}</span></div>
       </div>
 
@@ -710,11 +714,15 @@ function BudgetTracker({ household, onLogout, onRename }) {
           <span>Montant épargné ce mois-ci (manuel)</span>
           <input type="number" value={curManualSavings} onChange={(e) => updateSavings(selectedMonth, parseFloat(e.target.value) || 0)} />
         </div>
-        {epargneCat && curSavingsFromCategory !== 0 && (
-          <div className="import-hint" style={{ padding: "0 16px 8px" }}>
-            + {fmt(curSavingsFromCategory)} depuis les transactions catégorisées « {epargneCat.name} » — total {fmt(curSavings)}
+        {epargneCat && (
+          <div className="row" style={{ gridTemplateColumns: "1fr 140px" }}>
+            <span style={{ fontStyle: "italic", color: "var(--ink-soft)" }} title={`Total automatique des transactions catégorisées « ${epargneCat.name} »`}>
+              {epargneCat.name} (auto)
+            </span>
+            <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--ink-soft)" }}>{fmt(curSavingsFromCategory)}</span>
           </div>
         )}
+        <div className="totals-row"><span>Total épargne</span><span>{fmt(curSavings)}</span></div>
       </div>
 
       <div className="panel">
