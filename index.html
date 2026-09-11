@@ -853,12 +853,11 @@ function BudgetTracker({ household, onLogout, onRename }) {
       <div className="summary">
         <div className="stat"><div className="stat-label">Revenus du mois</div><div className="stat-value">{fmt(curIncomeTotal)}</div></div>
         <div className="stat"><div className="stat-label">Dépenses réelles</div><div className="stat-value">{fmt(curActualTotal)}</div></div>
-        <div className="stat">
-          <div className="stat-label">Revenus − Dépenses</div>
-          <div className="stat-value" style={{ color: (curIncomeTotal - curActualTotal) >= 0 ? "#3F6B4A" : "#9B3D3D" }}>{fmt(curIncomeTotal - curActualTotal)}</div>
-        </div>
         <div className="stat"><div className="stat-label">Épargne</div><div className="stat-value">{fmt(curSavings)}</div></div>
-        <div className="stat"><div className="stat-label">Restant (après épargne)</div><div className="stat-value" style={{ color: curRestant >= 0 ? "#3F6B4A" : "#9B3D3D" }}>{fmt(curRestant)}</div></div>
+        <div className="stat">
+          <div className="stat-label">Revenus − Dépenses − Épargne</div>
+          <div className="stat-value" style={{ color: curRestant >= 0 ? "#3F6B4A" : "#9B3D3D" }}>{fmt(curRestant)}</div>
+        </div>
       </div>
 
       <div className="charts">
