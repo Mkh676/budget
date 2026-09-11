@@ -395,8 +395,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const updateSavings = (m, v) => setSavings((s) => ({ ...s, [m]: v }));
 
   // ---------- CSV import (bank statement) ----------
-  const [importRows, setImportRows] = useState(null); // null = no import in progress
-  const [importMonth, setImportMonth] = useState(null); // the month this pending import belongs to
+  const [importSummary, setImportSummary] = useState(null); // transient success message after an import
 
   const guessCategoryId = (label) => {
     const l = (label || "").toLowerCase();
@@ -487,7 +486,8 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const handleCsvFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const targetMonth = selectedMonth; // capture now — importing shouldn't drift if the user switches tabs later
+    const targetMonth = selectedMonth; // capture now — shouldn't drift if the user switches tabs before the read finishes
+    const targetLabel = months.find((m) => m.id === targetMonth)?.label || targetMonth;
     const reader = new FileReader();
     reader.onload = (ev) => {
       const parsed = parseCsv(ev.target.result, targetMonth);
@@ -495,33 +495,22 @@ function BudgetTracker({ household, onLogout, onRename }) {
         window.alert("Colonnes attendues introuvables (date, libellé/label, montant). Vérifiez le format du fichier exporté.");
         return;
       }
-      setImportMonth(targetMonth);
-      setImportRows(parsed);
+      const dupCount = parsed.filter((r) => r.duplicate).length;
+      const newRows = parsed.filter((r) => !r.duplicate).map(({ duplicate, ...r }) => r);
+      // Save straight away — no in-memory-only review step, so nothing is
+      // lost if the tab gets reloaded or discarded before you're done
+      // reviewing. Categorize/fix rows afterward in "Transactions" below.
+      setTransactions((t) => ({ ...t, [targetMonth]: [...(t[targetMonth] || []), ...newRows] }));
+      setImportSummary(
+        `${newRows.length} transaction(s) importée(s) pour ${targetLabel}` +
+        (dupCount > 0 ? `, ${dupCount} doublon(s) ignoré(s)` : "") +
+        `. Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».`
+      );
+      setShowTransactions(true);
     };
     reader.readAsText(file, "utf-8");
     e.target.value = "";
   };
-
-  const setImportRowCategory = (id, catId) => {
-    if (catId === "__new__") {
-      const name = window.prompt("Nom de la nouvelle catégorie ?");
-      if (!name) return;
-      const newId = uid("cat");
-      setCategories((cs) => [...cs, { id: newId, name, budget: 0 }]);
-      setImportRows((rows) => rows.map((r) => (r.id === id ? { ...r, categoryId: newId } : r)));
-      return;
-    }
-    setImportRows((rows) => rows.map((r) => (r.id === id ? { ...r, categoryId: catId } : r)));
-  };
-
-  const confirmImport = () => {
-    const classified = importRows.filter((r) => r.categoryId && !r.duplicate);
-    setTransactions((t) => ({ ...t, [importMonth]: [...(t[importMonth] || []), ...classified.map(({ duplicate, ...r }) => r)] }));
-    setImportRows(null);
-    setImportMonth(null);
-  };
-
-  const cancelImport = () => { setImportRows(null); setImportMonth(null); };
 
   // ---------- Transaction log (editable, per month) ----------
   const [txErrors, setTxErrors] = useState({}); // { [txId]: "error message" }, kept for inline highlight too
@@ -666,65 +655,18 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
       <div className="panel">
         <div className="panel-title">Importer un relevé bancaire (CSV)</div>
-        {!importRows && (
-          <div className="import-drop">
-            <input type="file" accept=".csv,text/csv" onChange={handleCsvFile} />
-            <div className="import-hint">
-              Exportez votre relevé en CSV depuis votre banque (ex: Boursorama : Comptes → Télécharger → CSV), puis sélectionnez le fichier ici.
-              Seules les dépenses (montants négatifs) sont importées, pour le mois « {curMonthLabel} ».
-            </div>
+        <div className="import-drop">
+          <input type="file" accept=".csv,text/csv" onChange={handleCsvFile} />
+          <div className="import-hint">
+            Exportez votre relevé en CSV depuis votre banque (ex: Boursorama : Comptes → Télécharger → CSV), puis sélectionnez le fichier ici.
+            Seules les dépenses (montants négatifs) sont importées, pour le mois « {curMonthLabel} ». Import instantané et enregistré — vous classez les catégories ensuite, tranquillement, dans « Transactions » ci-dessous.
           </div>
-        )}
-        {importRows && importRows.length === 0 && (
-          <div className="import-hint" style={{ padding: 16 }}>Aucune dépense trouvée dans ce fichier. <button className="add-line" style={{ display: "inline", padding: 0 }} onClick={cancelImport}>Réessayer</button></div>
-        )}
-        {importRows && importRows.length > 0 && (
-          <React.Fragment>
-            <div className="import-summary">
-              Import en attente pour <strong>{months.find((m) => m.id === importMonth)?.label || importMonth}</strong>
-              {importMonth !== selectedMonth && " (vous consultez un autre mois en ce moment, sans risque — l'import reste rattaché au bon mois)"}.
-              {" "}{importRows.length} transaction(s) trouvée(s)
-              {importRows.some((r) => r.duplicate) && <span> — {importRows.filter((r) => r.duplicate).length} doublon(s) détecté(s) et exclu(s) automatiquement</span>}
-              . Assignez une catégorie à chacune (ou laissez « Ignorer »).
-            </div>
-            <div className="import-preview">
-              {importRows.map((r) => (
-                <div className="import-row" key={r.id} style={r.duplicate ? { opacity: 0.55 } : undefined}>
-                  <span>{r.date}</span>
-                  <span title={r.label}>{r.label.length > 40 ? r.label.slice(0, 39) + "…" : r.label}</span>
-                  <span style={{ textAlign: "right" }}>{fmt(r.amount)}</span>
-                  {r.duplicate ? (
-                    <span style={{ fontSize: 11, color: "var(--red)" }}>
-                      Doublon — déjà présent{" "}
-                      <button
-                        className="add-line"
-                        style={{ display: "inline", padding: 0, fontSize: 11 }}
-                        onClick={() => setImportRows((rows) => rows.map((row) => (row.id === r.id ? { ...row, duplicate: false, categoryId: guessCategoryId(row.label) } : row)))}
-                      >
-                        (pas un doublon ?)
-                      </button>
-                    </span>
-                  ) : (
-                    <select value={r.categoryId} onChange={(e) => setImportRowCategory(r.id, e.target.value)}>
-                      <option value="">— Ignorer —</option>
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                      <option value="__new__">+ Nouvelle catégorie…</option>
-                    </select>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div className="import-summary" style={{ paddingTop: 0 }}>{importRows.filter((r) => !r.duplicate).length} seront importées ; {importRows.filter((r) => r.duplicate).length} ignorées comme doublons.</div>
-            <div className="import-actions">
-              <button className="import-confirm" onClick={confirmImport}>Importer les dépenses classées</button>
-              <button className="import-cancel" onClick={cancelImport}>Annuler</button>
-            </div>
-            <div className="import-hint" style={{ padding: "0 16px 12px" }}>
-              Ces dépenses seront ajoutées à {curMonthLabel} et resteront visibles/modifiables dans « Transactions » ci-dessous.
-            </div>
-          </React.Fragment>
+        </div>
+        {importSummary && (
+          <div className="import-summary" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <span>{importSummary}</span>
+            <button className="add-line" style={{ display: "inline", padding: 0, whiteSpace: "nowrap" }} onClick={() => setImportSummary(null)}>Fermer ✕</button>
+          </div>
         )}
       </div>
 
@@ -837,8 +779,16 @@ function App() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
+  const lastCheckedUserId = useRef(null);
   useEffect(() => {
-    if (!session) { setHousehold(null); return; }
+    const userId = session?.user?.id || null;
+    if (!session) { setHousehold(null); lastCheckedUserId.current = null; return; }
+    // Supabase silently refreshes the session token whenever the browser tab
+    // regains focus — that fires this effect again with a *new* session object
+    // for the *same* user. Without this guard, that was force-reloading the
+    // whole app (and wiping any unsaved edits) just from switching tabs.
+    if (userId === lastCheckedUserId.current) return;
+    lastCheckedUserId.current = userId;
     (async () => {
       setCheckingHousehold(true);
       const { data } = await sb.from("household_members")
