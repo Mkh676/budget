@@ -284,6 +284,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const [saveState, setSaveState] = useState("idle");
   const [showTransactions, setShowTransactions] = useState(true);
   const saveTimer = useRef(null);
+  const csvInputRef = useRef(null);
   const lastMonthKey = "budget:lastMonth:" + household.id;
 
   useEffect(() => {
@@ -330,6 +331,45 @@ function BudgetTracker({ household, onLogout, onRename }) {
   useEffect(() => {
     if (selectedMonth) localStorage.setItem(lastMonthKey, selectedMonth);
   }, [selectedMonth]);
+
+  // Auto-detect/create a tab for the real current calendar month. Runs once
+  // per app load, after the initial data has loaded.
+  const autoMonthChecked = useRef(false);
+  useEffect(() => {
+    if (!loaded || autoMonthChecked.current) return;
+    autoMonthChecked.current = true;
+
+    const MONTH_NAMES_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+    const now = new Date();
+    const currentKey = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    const currentLabel = MONTH_NAMES_FR[now.getMonth()] + " " + now.getFullYear();
+
+    // Already tagged with a real date matching this month? Nothing to do.
+    if (months.some((m) => m.date && m.date.slice(0, 7) === currentKey)) return;
+
+    // Not tagged, but a tab's NAME already looks like this month (e.g. the
+    // user manually created/renamed one) — attach the date so future checks
+    // are reliable, without creating a duplicate.
+    const monthNameLower = MONTH_NAMES_FR[now.getMonth()];
+    const yearStr = String(now.getFullYear());
+    const byLabel = months.find((m) => {
+      const l = m.label.toLowerCase();
+      return l.includes(monthNameLower) && l.includes(yearStr);
+    });
+    if (byLabel) {
+      setMonths((ms) => ms.map((m) => (m.id === byLabel.id ? { ...m, date: currentKey + "-01" } : m)));
+      return;
+    }
+
+    // Genuinely missing — create it and switch to it.
+    const id = uid("month");
+    setMonths((ms) => [...ms, { id, label: currentLabel, date: currentKey + "-01" }]);
+    setIncome((inc) => ({ ...inc, [id]: [{ id: uid("inc"), label: "Revenu", amount: 0 }] }));
+    setSavings((s) => ({ ...s, [id]: 0 }));
+    setActuals((a) => ({ ...a, [id]: {} }));
+    setTransactions((t) => ({ ...t, [id]: [] }));
+    setSelectedMonth(id);
+  }, [loaded]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -728,9 +768,12 @@ function BudgetTracker({ household, onLogout, onRename }) {
       <div className="panel">
         <div className="panel-title">Importer un relevé bancaire (CSV)</div>
         <div className="import-drop">
-          <input type="file" accept=".csv,text/csv" onChange={handleCsvFile} />
+          <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={handleCsvFile} style={{ display: "none" }} />
+          <button className="btn" style={{ width: "auto", padding: "10px 24px" }} onClick={() => csvInputRef.current && csvInputRef.current.click()}>
+            Importer
+          </button>
           <div className="import-hint">
-            Exportez votre relevé en CSV depuis votre banque (ex: Boursorama : Comptes → Télécharger → CSV), puis sélectionnez le fichier ici.
+            Exportez votre relevé en CSV depuis votre banque (ex: Boursorama : Comptes → Télécharger → CSV), puis cliquez sur « Importer » et choisissez le fichier.
             Seules les dépenses (montants négatifs) sont importées, pour le mois « {curMonthLabel} ». Import instantané et enregistré — vous classez les catégories ensuite, tranquillement, dans « Transactions » ci-dessous.
           </div>
         </div>
