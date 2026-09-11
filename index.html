@@ -429,6 +429,16 @@ function BudgetTracker({ household, onLogout, onRename }) {
       return next;
     });
   };
+  const moveCategory = (id, direction) => {
+    setCategories((cs) => {
+      const idx = cs.findIndex((c) => c.id === id);
+      const swapIdx = idx + direction;
+      if (idx === -1 || swapIdx < 0 || swapIdx >= cs.length) return cs;
+      const next = [...cs];
+      [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+      return next;
+    });
+  };
   const addMonth = () => {
     const label = window.prompt("Nom du nouveau mois (ex: Novembre 2026)"); if (!label) return;
     const id = uid("month");
@@ -991,7 +1001,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
         <table>
           <thead><tr><th>Catégorie</th><th className="num">Budget mensuel</th><th className="num">Réel ({curMonthLabel})</th><th className="num">Écart</th><th></th></tr></thead>
           <tbody>
-            {expenseCategories.map((c) => {
+            {expenseCategories.map((c, idx) => {
               const total = categoryTotal(selectedMonth, c.id);
               const diff = (Number(c.budget) || 0) - total;
               const budget = Number(c.budget) || 0;
@@ -1021,7 +1031,13 @@ function BudgetTracker({ household, onLogout, onRename }) {
                   <td className="num"><input type="number" value={c.budget} onChange={(e) => updateCategoryBudget(c.id, parseFloat(e.target.value) || 0)} /></td>
                   <td className="num">{fmt(total)}</td>
                   <td className={"num " + (diff >= 0 ? "diff-pos" : "diff-neg")}>{fmt(diff)}</td>
-                  <td><button className="icon-btn" onClick={() => removeCategory(c.id)}>✕</button></td>
+                  <td>
+                    <div style={{ display: "flex", gap: 2 }}>
+                      <button className="icon-btn" style={{ color: "var(--ink-soft)", opacity: idx === 0 ? 0.3 : 1 }} disabled={idx === 0} onClick={() => moveCategory(c.id, -1)} title="Monter">▲</button>
+                      <button className="icon-btn" style={{ color: "var(--ink-soft)", opacity: idx === expenseCategories.length - 1 ? 0.3 : 1 }} disabled={idx === expenseCategories.length - 1} onClick={() => moveCategory(c.id, 1)} title="Descendre">▼</button>
+                      <button className="icon-btn" onClick={() => removeCategory(c.id)}>✕</button>
+                    </div>
+                  </td>
                 </tr>
               );
             })}
