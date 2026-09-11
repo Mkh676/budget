@@ -132,6 +132,8 @@ const seedCategories = [
   { id: "resto", name: "Resto", budget: 200 },
   { id: "weekends", name: "Weekends", budget: 200 },
   { id: "cadeaux", name: "Cadeaux", budget: 100 },
+  { id: "salaire", name: "Salaire", budget: 0 },
+  { id: "epargne", name: "Épargne", budget: 0 },
 ];
 const seedMonths = [{ id: uid("month"), label: "Ce mois-ci" }];
 const seedIncome = { [seedMonths[0].id]: [{ id: uid("inc"), label: "Revenu 1", amount: 0 }] };
@@ -345,10 +347,23 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const monthTransactions = (m) => transactions[m] || [];
   const categoryTotal = (m, catId) => monthTransactions(m).filter((t) => t.categoryId === catId).reduce((s, t) => s + t.amount, 0);
 
-  const monthIncome = (m) => (income[m] || []).reduce((s, l) => s + (Number(l.amount) || 0), 0);
-  const monthBudgetTotal = categories.reduce((s, c) => s + (Number(c.budget) || 0), 0);
-  const monthActualTotal = (m) => categories.reduce((s, c) => s + categoryTotal(m, c.id), 0);
-  const monthRestant = (m) => monthIncome(m) - monthActualTotal(m) - (Number(savings[m]) || 0);
+  // Salaire/Épargne are income & savings categories, not expense categories —
+  // detected by name so this works whether they came from the default
+  // template or were added manually by a household member.
+  const salaireCat = categories.find((c) => c.name.toLowerCase().includes("salaire"));
+  const epargneCat = categories.find((c) => { const n = c.name.toLowerCase(); return n.includes("épargne") || n.includes("epargne"); });
+  const expenseCategories = categories.filter((c) => c.id !== salaireCat?.id && c.id !== epargneCat?.id);
+
+  // Salaire transactions are money received (negative app-amount) — flip sign for income.
+  const salaryFromTransactions = (m) => (salaireCat ? -categoryTotal(m, salaireCat.id) : 0);
+  // Épargne transactions are money moved out to savings (positive app-amount) — add as-is.
+  const epargneFromTransactions = (m) => (epargneCat ? categoryTotal(m, epargneCat.id) : 0);
+
+  const monthIncome = (m) => (income[m] || []).reduce((s, l) => s + (Number(l.amount) || 0), 0) + salaryFromTransactions(m);
+  const monthSavings = (m) => (Number(savings[m]) || 0) + epargneFromTransactions(m);
+  const monthBudgetTotal = expenseCategories.reduce((s, c) => s + (Number(c.budget) || 0), 0);
+  const monthActualTotal = (m) => expenseCategories.reduce((s, c) => s + categoryTotal(m, c.id), 0);
+  const monthRestant = (m) => monthIncome(m) - monthActualTotal(m) - monthSavings(m);
 
 
   const updateCategoryBudget = (id, v) => setCategories((cs) => cs.map((c) => (c.id === id ? { ...c, budget: v } : c)));
@@ -408,6 +423,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
       { ids: ["resto"], words: ["restaurant", "resto", "brasserie", "uber eats", "deliveroo", "cafe"] },
       { ids: ["weekends"], words: ["hotel", "booking.com", "bkg*", "airbnb", "camping"] },
       { ids: ["netflix"], words: ["netflix", "prime video", "amazon prime", "spotify", "disney"] },
+      { ids: ["alimentation"], words: ["amazon"] },
       { ids: ["assurance_habitation"], words: ["assurance habitation", "maif", "macif", "matmut"] },
       { ids: ["voiture_assurance"], words: ["assurance auto", "assurance vehicule"] },
       { ids: ["sante"], words: ["pharmacie", "medecin", "docteur", "dentiste", "optique", "audition"] },
@@ -419,6 +435,20 @@ function BudgetTracker({ household, onLogout, onRename }) {
         if (match) return match.id;
       }
     }
+
+    // Match by category NAME (not id) for things like Salaire/Épargne, since
+    // these are often user-added categories with a random internal id rather
+    // than one of our known default ids above.
+    const findByName = (needle) => categories.find((c) => c.name.toLowerCase().includes(needle));
+    if (["salaire", "paie", "paye"].some((w) => l.includes(w))) {
+      const cat = findByName("salaire");
+      if (cat) return cat.id;
+    }
+    if (["epargne", "épargne", "livret a", "ldd", "lep ", "pel "].some((w) => l.includes(w))) {
+      const cat = findByName("épargne") || findByName("epargne");
+      if (cat) return cat.id;
+    }
+
     return "";
   };
 
@@ -581,12 +611,14 @@ function BudgetTracker({ household, onLogout, onRename }) {
     setEditingName(false);
   };
 
-  const barData = categories.map((c) => ({ name: c.name.length > 14 ? c.name.slice(0, 13) + "…" : c.name, Budget: Number(c.budget) || 0, Réel: categoryTotal(selectedMonth, c.id) }));
+  const barData = expenseCategories.map((c) => ({ name: c.name.length > 14 ? c.name.slice(0, 13) + "…" : c.name, Budget: Number(c.budget) || 0, Réel: categoryTotal(selectedMonth, c.id) }));
   const trendData = months.map((m) => ({ name: m.label, Restant: Math.round(monthRestant(m.id)) }));
   const curIncomeLines = income[selectedMonth] || [];
   const curIncomeTotal = monthIncome(selectedMonth);
   const curActualTotal = monthActualTotal(selectedMonth);
-  const curSavings = Number(savings[selectedMonth]) || 0;
+  const curManualSavings = Number(savings[selectedMonth]) || 0;
+  const curSavingsFromCategory = epargneFromTransactions(selectedMonth);
+  const curSavings = monthSavings(selectedMonth);
   const curRestant = monthRestant(selectedMonth);
   const curMonthLabel = months.find((m) => m.id === selectedMonth)?.label;
 
@@ -664,15 +696,25 @@ function BudgetTracker({ household, onLogout, onRename }) {
           </div>
         ))}
         <button className="add-line" onClick={() => addIncomeLine(selectedMonth)}>+ Ajouter une ligne de revenu</button>
+        {salaireCat && salaryFromTransactions(selectedMonth) !== 0 && (
+          <div className="import-hint" style={{ padding: "0 16px 8px" }}>
+            + {fmt(salaryFromTransactions(selectedMonth))} depuis les transactions catégorisées « {salaireCat.name} »
+          </div>
+        )}
         <div className="totals-row"><span>Total revenus</span><span>{fmt(curIncomeTotal)}</span></div>
       </div>
 
       <div className="panel">
         <div className="panel-title">Épargne mise de côté</div>
         <div className="row" style={{ gridTemplateColumns: "1fr 140px" }}>
-          <span>Montant épargné ce mois-ci</span>
-          <input type="number" value={curSavings} onChange={(e) => updateSavings(selectedMonth, parseFloat(e.target.value) || 0)} />
+          <span>Montant épargné ce mois-ci (manuel)</span>
+          <input type="number" value={curManualSavings} onChange={(e) => updateSavings(selectedMonth, parseFloat(e.target.value) || 0)} />
         </div>
+        {epargneCat && curSavingsFromCategory !== 0 && (
+          <div className="import-hint" style={{ padding: "0 16px 8px" }}>
+            + {fmt(curSavingsFromCategory)} depuis les transactions catégorisées « {epargneCat.name} » — total {fmt(curSavings)}
+          </div>
+        )}
       </div>
 
       <div className="panel">
@@ -702,8 +744,11 @@ function BudgetTracker({ household, onLogout, onRename }) {
             {monthTransactions(selectedMonth).length === 0 ? (
               <div className="import-hint" style={{ padding: 16 }}>Aucune dépense enregistrée ce mois-ci pour l'instant.</div>
             ) : (
-              <div className="import-preview">
-                {monthTransactions(selectedMonth).map((tx) => (
+              (() => {
+                const all = monthTransactions(selectedMonth);
+                const uncategorized = all.filter((tx) => !tx.categoryId);
+                const categorized = all.filter((tx) => tx.categoryId);
+                const renderRow = (tx) => (
                   <React.Fragment key={tx.id}>
                     <div className="import-row">
                       <input
@@ -729,7 +774,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
                       />
                       <div style={{ display: "flex", gap: 6 }}>
                         <select value={tx.categoryId} onChange={(e) => updateTransactionCategory(selectedMonth, tx.id, e.target.value)}>
-                          <option value="">— Ignorer —</option>
+                          <option value="">— Non catégorisé —</option>
                           {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
                           <option value="__new__">+ Nouvelle catégorie…</option>
                         </select>
@@ -740,8 +785,30 @@ function BudgetTracker({ household, onLogout, onRename }) {
                       <div style={{ fontSize: 11, color: "var(--red)", padding: "0 16px 8px" }}>{txErrors[tx.id]}</div>
                     )}
                   </React.Fragment>
-                ))}
-              </div>
+                );
+                return (
+                  <React.Fragment>
+                    {uncategorized.length > 0 && (
+                      <React.Fragment>
+                        <div className="import-summary" style={{ color: "var(--red)", fontWeight: 600 }}>
+                          ⚠ Non catégorisé ({uncategorized.length}) — à trier
+                        </div>
+                        <div className="import-preview" style={{ borderBottom: "2px solid var(--rule)" }}>
+                          {uncategorized.map(renderRow)}
+                        </div>
+                      </React.Fragment>
+                    )}
+                    {categorized.length > 0 && (
+                      <React.Fragment>
+                        {uncategorized.length > 0 && <div className="import-summary">Catégorisées ({categorized.length})</div>}
+                        <div className="import-preview">
+                          {categorized.map(renderRow)}
+                        </div>
+                      </React.Fragment>
+                    )}
+                  </React.Fragment>
+                );
+              })()
             )}
             <button className="add-line" onClick={() => addManualTransaction(selectedMonth)}>+ Ajouter une dépense</button>
           </React.Fragment>
@@ -752,7 +819,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
         <table>
           <thead><tr><th>Catégorie</th><th className="num">Budget mensuel</th><th className="num">Réel ({curMonthLabel})</th><th className="num">Écart</th><th></th></tr></thead>
           <tbody>
-            {categories.map((c) => {
+            {expenseCategories.map((c) => {
               const total = categoryTotal(selectedMonth, c.id);
               const diff = (Number(c.budget) || 0) - total;
               return (
@@ -772,6 +839,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
       </div>
       <div className="import-hint" style={{ maxWidth: 900, margin: "-16px auto 26px", padding: "0 4px" }}>
         Le montant « Réel » est calculé automatiquement à partir des transactions ci-dessus — modifiez-les dans le panneau « Transactions ».
+        {(salaireCat || epargneCat) && " Les catégories Salaire/Épargne ne sont pas listées ici : leurs montants apparaissent dans « Revenus » et « Épargne mise de côté » plus haut."}
       </div>
 
       <div className="summary">
