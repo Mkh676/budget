@@ -288,6 +288,8 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const [showTransactions, setShowTransactions] = useState(true);
   const [showRecurringSection, setShowRecurringSection] = useState(false);
   const [showRecurringFees, setShowRecurringFees] = useState(true);
+  const [dragCategoryId, setDragCategoryId] = useState(null);
+  const [dragOverCategoryId, setDragOverCategoryId] = useState(null);
   const saveTimer = useRef(null);
   const csvInputRef = useRef(null);
   const lastMonthKey = "budget:lastMonth:" + household.id;
@@ -436,6 +438,18 @@ function BudgetTracker({ household, onLogout, onRename }) {
       if (idx === -1 || swapIdx < 0 || swapIdx >= cs.length) return cs;
       const next = [...cs];
       [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+      return next;
+    });
+  };
+  const reorderCategory = (draggedId, targetId) => {
+    if (!draggedId || draggedId === targetId) return;
+    setCategories((cs) => {
+      const next = [...cs];
+      const fromIdx = next.findIndex((c) => c.id === draggedId);
+      const toIdx = next.findIndex((c) => c.id === targetId);
+      if (fromIdx === -1 || toIdx === -1) return cs;
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
       return next;
     });
   };
@@ -999,7 +1013,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Catégorie</th><th className="num">Budget mensuel</th><th className="num">Réel ({curMonthLabel})</th><th className="num">Écart</th><th></th></tr></thead>
+          <thead><tr><th style={{ width: 24 }}></th><th>Catégorie</th><th className="num">Budget mensuel</th><th className="num">Réel ({curMonthLabel})</th><th className="num">Écart</th><th></th></tr></thead>
           <tbody>
             {expenseCategories.map((c, idx) => {
               const total = categoryTotal(selectedMonth, c.id);
@@ -1016,27 +1030,57 @@ function BudgetTracker({ household, onLogout, onRename }) {
               };
               const barColor = pct > 100 ? "var(--red)" : Math.round(pct) === 100 ? "var(--green)" : yellowShade(pct);
               return (
-                <tr key={c.id}>
+                <tr
+                  key={c.id}
+                  onDragOver={(e) => { e.preventDefault(); if (dragOverCategoryId !== c.id) setDragOverCategoryId(c.id); }}
+                  onDragLeave={() => setDragOverCategoryId((v) => (v === c.id ? null : v))}
+                  onDrop={(e) => { e.preventDefault(); reorderCategory(dragCategoryId, c.id); setDragCategoryId(null); setDragOverCategoryId(null); }}
+                  style={{
+                    background: dragOverCategoryId === c.id && dragCategoryId && dragCategoryId !== c.id ? "var(--paper-alt)" : undefined,
+                    outline: dragOverCategoryId === c.id && dragCategoryId && dragCategoryId !== c.id ? "2px dashed var(--gold)" : undefined,
+                    opacity: dragCategoryId === c.id ? 0.4 : 1,
+                  }}
+                >
+                  <td style={{ padding: "6px 4px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                      <span
+                        draggable
+                        onDragStart={() => setDragCategoryId(c.id)}
+                        onDragEnd={() => { setDragCategoryId(null); setDragOverCategoryId(null); }}
+                        style={{ cursor: "grab", color: "var(--ink-soft)", fontSize: 14, userSelect: "none" }}
+                        title="Glisser pour réordonner"
+                      >
+                        ⠿
+                      </span>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                        <button className="icon-btn" style={{ color: "var(--ink-soft)", fontSize: 10, lineHeight: 1, padding: 0, opacity: idx === 0 ? 0.3 : 1 }} disabled={idx === 0} onClick={() => moveCategory(c.id, -1)} title="Monter">▲</button>
+                        <button className="icon-btn" style={{ color: "var(--ink-soft)", fontSize: 10, lineHeight: 1, padding: 0, opacity: idx === expenseCategories.length - 1 ? 0.3 : 1 }} disabled={idx === expenseCategories.length - 1} onClick={() => moveCategory(c.id, 1)} title="Descendre">▼</button>
+                      </div>
+                    </div>
+                  </td>
                   <td>
                     <input type="text" value={c.name} onChange={(e) => renameCategory(c.id, e.target.value)} />
-                    {budget > 0 && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <div className="budget-bar-track" style={{ flex: 1 }} title={`${Math.round(pct)}% du budget`}>
-                          <div className="budget-bar-fill" style={{ width: Math.min(100, pct) + "%", background: barColor }} />
-                        </div>
-                        <span style={{ fontSize: 10, color: barColor, fontFamily: "var(--font-mono)", minWidth: 30, textAlign: "right" }}>{Math.round(pct)}%</span>
+                    {curActualTotal > 0 && total !== 0 && (
+                      <div style={{ fontSize: 10, color: "var(--ink-soft)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
+                        {Math.round((total / curActualTotal) * 100)}% des dépenses du mois
                       </div>
                     )}
                   </td>
                   <td className="num"><input type="number" value={c.budget} onChange={(e) => updateCategoryBudget(c.id, parseFloat(e.target.value) || 0)} /></td>
                   <td className="num">{fmt(total)}</td>
-                  <td className={"num " + (diff >= 0 ? "diff-pos" : "diff-neg")}>{fmt(diff)}</td>
+                  <td className={"num " + (diff >= 0 ? "diff-pos" : "diff-neg")}>
+                    {fmt(diff)}
+                    {budget > 0 && (
+                      <React.Fragment>
+                        <div className="budget-bar-track" style={{ marginLeft: "auto" }} title={`${Math.round(pct)}% du budget`}>
+                          <div className="budget-bar-fill" style={{ width: Math.min(100, pct) + "%", background: barColor }} />
+                        </div>
+                        <div style={{ fontSize: 10, color: barColor, fontFamily: "var(--font-mono)" }}>{Math.round(pct)}%</div>
+                      </React.Fragment>
+                    )}
+                  </td>
                   <td>
-                    <div style={{ display: "flex", gap: 2 }}>
-                      <button className="icon-btn" style={{ color: "var(--ink-soft)", opacity: idx === 0 ? 0.3 : 1 }} disabled={idx === 0} onClick={() => moveCategory(c.id, -1)} title="Monter">▲</button>
-                      <button className="icon-btn" style={{ color: "var(--ink-soft)", opacity: idx === expenseCategories.length - 1 ? 0.3 : 1 }} disabled={idx === expenseCategories.length - 1} onClick={() => moveCategory(c.id, 1)} title="Descendre">▼</button>
-                      <button className="icon-btn" onClick={() => removeCategory(c.id)}>✕</button>
-                    </div>
+                    <button className="icon-btn" onClick={() => removeCategory(c.id)}>✕</button>
                   </td>
                 </tr>
               );
