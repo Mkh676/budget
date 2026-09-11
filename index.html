@@ -286,6 +286,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [saveState, setSaveState] = useState("idle");
   const [showTransactions, setShowTransactions] = useState(true);
+  const [showRecurringSection, setShowRecurringSection] = useState(false);
   const saveTimer = useRef(null);
   const csvInputRef = useRef(null);
   const lastMonthKey = "budget:lastMonth:" + household.id;
@@ -878,8 +879,9 @@ function BudgetTracker({ household, onLogout, onRename }) {
             ) : (
               (() => {
                 const all = monthTransactions(selectedMonth);
-                const uncategorized = all.filter((tx) => !tx.categoryId);
-                const categorized = all.filter((tx) => tx.categoryId);
+                const recurring = all.filter((tx) => tx.recurring);
+                const uncategorized = all.filter((tx) => !tx.recurring && !tx.categoryId);
+                const categorized = all.filter((tx) => !tx.recurring && tx.categoryId);
                 const renderRow = (tx) => (
                   <React.Fragment key={tx.id}>
                     <div className="import-row">
@@ -943,9 +945,26 @@ function BudgetTracker({ household, onLogout, onRename }) {
                         </div>
                       </React.Fragment>
                     )}
+                    {recurring.length > 0 && (
+                      <React.Fragment>
+                        <div
+                          className="import-summary"
+                          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+                          onClick={() => setShowRecurringSection((v) => !v)}
+                        >
+                          <span>🔁 Récurrentes ({recurring.length})</span>
+                          <span style={{ color: "var(--gold)" }}>{showRecurringSection ? "Masquer ▲" : "Afficher ▼"}</span>
+                        </div>
+                        {showRecurringSection && (
+                          <div className="import-preview" style={{ borderBottom: "2px solid var(--rule)" }}>
+                            {recurring.map(renderRow)}
+                          </div>
+                        )}
+                      </React.Fragment>
+                    )}
                     {categorized.length > 0 && (
                       <React.Fragment>
-                        {uncategorized.length > 0 && <div className="import-summary">Catégorisées ({categorized.length})</div>}
+                        {(uncategorized.length > 0 || recurring.length > 0) && <div className="import-summary">Catégorisées ({categorized.length})</div>}
                         <div className="import-preview">
                           {categorized.map(renderRow)}
                         </div>
@@ -969,7 +988,15 @@ function BudgetTracker({ household, onLogout, onRename }) {
               const diff = (Number(c.budget) || 0) - total;
               const budget = Number(c.budget) || 0;
               const pct = budget > 0 ? Math.min(150, (total / budget) * 100) : (total > 0 ? 150 : 0);
-              const barColor = pct >= 100 ? "var(--red)" : pct >= 80 ? "var(--gold)" : "var(--green)";
+              // Progressive yellow shade from pale (low spend) to deep amber (approaching budget) —
+              // green right on target, red once over.
+              const yellowShade = (p) => {
+                const t = Math.max(0, Math.min(1, p / 100));
+                const sat = 35 + t * 45; // 35% -> 80%
+                const light = 82 - t * 40; // 82% -> 42%
+                return `hsl(44, ${sat}%, ${light}%)`;
+              };
+              const barColor = pct > 100 ? "var(--red)" : Math.round(pct) === 100 ? "var(--green)" : yellowShade(pct);
               return (
                 <tr key={c.id}>
                   <td>
