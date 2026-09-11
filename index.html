@@ -112,6 +112,32 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const fmt = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " €";
 function uid(prefix) { return prefix + "_" + Math.random().toString(36).slice(2, 9); }
 
+const MONTH_NAMES_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+// Best-effort "year-month" key parsed out of a free-text label like "Novembre 2026",
+// used as a fallback for months that were never tagged with a real `date`.
+function monthLabelToKey(label) {
+  const l = (label || "").toLowerCase();
+  const year = l.match(/\b(20\d{2})\b/);
+  if (!year) return null;
+  const monthIdx = MONTH_NAMES_FR.findIndex((name) => l.includes(name));
+  if (monthIdx === -1) return null;
+  return year[1] + "-" + String(monthIdx + 1).padStart(2, "0");
+}
+function monthSortKey(m) { return (m.date && m.date.slice(0, 7)) || monthLabelToKey(m.label); }
+// Months with a resolvable date/label sort chronologically; months we can't date
+// (e.g. an old freeform tab) are kept first, in their original relative order,
+// since they predate the introduction of month-tagging.
+function sortMonthsChronologically(list) {
+  return list
+    .map((m, i) => ({ m, i, key: monthSortKey(m) }))
+    .sort((a, b) => {
+      if (a.key && b.key) return a.key === b.key ? a.i - b.i : a.key < b.key ? -1 : 1;
+      if (a.key || b.key) return a.key ? 1 : -1;
+      return a.i - b.i;
+    })
+    .map((x) => x.m);
+}
+
 const seedCategories = [
   { id: "loyer", name: "Loyer + parking", budget: 1675 },
   { id: "emprunt", name: "Emprunt maison", budget: 0 },
@@ -326,7 +352,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
         setActuals(acts);
       }
 
-      setCategories(doc.categories); setMonths(doc.months); setIncome(doc.income);
+      setCategories(doc.categories); setMonths(sortMonthsChronologically(doc.months)); setIncome(doc.income);
       setSavings(doc.savings); setRecurringFees(doc.recurringFees || []);
       const remembered = localStorage.getItem(lastMonthKey);
       const validMonth = doc.months.find((m) => m.id === remembered);
@@ -346,7 +372,6 @@ function BudgetTracker({ household, onLogout, onRename }) {
     if (!loaded || autoMonthChecked.current) return;
     autoMonthChecked.current = true;
 
-    const MONTH_NAMES_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
     const now = new Date();
     const currentKey = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
     const currentLabel = MONTH_NAMES_FR[now.getMonth()] + " " + now.getFullYear();
@@ -366,17 +391,17 @@ function BudgetTracker({ household, onLogout, onRename }) {
       return l.includes(monthNameLower);
     }) || months.find((m) => !m.date && m.label.toLowerCase().includes(yearStr));
     if (byLabel) {
-      setMonths((ms) => ms.map((m) => (m.id === byLabel.id ? { ...m, date: currentKey + "-01" } : m)));
+      setMonths((ms) => sortMonthsChronologically(ms.map((m) => (m.id === byLabel.id ? { ...m, date: currentKey + "-01" } : m))));
       return;
     }
 
     // Genuinely missing — create it and switch to it.
     const id = uid("month");
-    const prevMonth = months[months.length - 1];
+    const prevMonth = sortMonthsChronologically(months)[months.length - 1];
     const recurring = prevMonth
       ? (transactions[prevMonth.id] || []).filter((t) => t.recurring).map((t) => ({ ...t, id: uid("tx"), date: "" }))
       : [];
-    setMonths((ms) => [...ms, { id, label: currentLabel, date: currentKey + "-01" }]);
+    setMonths((ms) => sortMonthsChronologically([...ms, { id, label: currentLabel, date: currentKey + "-01" }]));
     setIncome((inc) => ({ ...inc, [id]: [{ id: uid("inc"), label: "Revenu", amount: 0 }] }));
     setSavings((s) => ({ ...s, [id]: 0 }));
     setActuals((a) => ({ ...a, [id]: {} }));
@@ -456,11 +481,12 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const addMonth = () => {
     const label = window.prompt("Nom du nouveau mois (ex: Novembre 2026)"); if (!label) return;
     const id = uid("month");
-    const prevMonth = months[months.length - 1];
+    const prevMonth = sortMonthsChronologically(months)[months.length - 1];
     const recurring = prevMonth
       ? (transactions[prevMonth.id] || []).filter((t) => t.recurring).map((t) => ({ ...t, id: uid("tx"), date: "" }))
       : [];
-    setMonths((ms) => [...ms, { id, label }]);
+    const key = monthLabelToKey(label);
+    setMonths((ms) => sortMonthsChronologically([...ms, key ? { id, label, date: key + "-01" } : { id, label }]));
     setIncome((inc) => ({ ...inc, [id]: [{ id: uid("inc"), label: "Revenu", amount: 0 }] }));
     setSavings((s) => ({ ...s, [id]: 0 })); setActuals((a) => ({ ...a, [id]: {} }));
     setTransactions((t) => ({ ...t, [id]: recurring }));
@@ -702,7 +728,8 @@ function BudgetTracker({ household, onLogout, onRename }) {
   };
 
   const barData = expenseCategories.map((c) => ({ name: c.name.length > 14 ? c.name.slice(0, 13) + "…" : c.name, Budget: Number(c.budget) || 0, Réel: categoryTotal(selectedMonth, c.id) }));
-  const trendData = months.map((m) => ({ name: m.label, Restant: Math.round(monthRestant(m.id)) }));
+  const sortedMonths = sortMonthsChronologically(months);
+  const trendData = sortedMonths.map((m) => ({ name: m.label, Restant: Math.round(monthRestant(m.id)) }));
   const curIncomeLines = income[selectedMonth] || [];
   const curIncomeTotal = monthIncome(selectedMonth);
   const curActualTotal = monthActualTotal(selectedMonth);
@@ -772,7 +799,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
       )}
 
       <div className="tabs">
-        {months.map((m) => (
+        {sortedMonths.map((m) => (
           <div
             key={m.id}
             className={"tab" + (m.id === selectedMonth ? " active" : "")}
