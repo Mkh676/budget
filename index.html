@@ -686,11 +686,22 @@ function BudgetTracker({ household, onLogout, onRename }) {
           <div className="ledger-sub">Revenus, épargne et dépenses — partagé et modifiable en direct</div>
         </div>
         <div className="head-actions">
+          <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={handleCsvFile} style={{ display: "none" }} />
+          <button className="reset-btn" onClick={() => csvInputRef.current && csvInputRef.current.click()} title={`Importer un relevé CSV pour ${curMonthLabel}`}>
+            ⭱ Importer un relevé (CSV)
+          </button>
           <span className="save-pill">{saveState === "saving" ? "Enregistrement…" : saveState === "error" ? "Erreur d'enregistrement" : "Enregistré"}</span>
           <span className="invite-pill">Code d'invitation : <span className="invite-code">{household.invite_code}</span></span>
           <button className="logout-btn" onClick={onLogout}>Se déconnecter</button>
         </div>
       </div>
+
+      {importSummary && (
+        <div className="import-summary" style={{ maxWidth: 900, margin: "0 auto 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, border: "1px solid var(--rule)" }}>
+          <span>{importSummary}</span>
+          <button className="add-line" style={{ display: "inline", padding: 0, whiteSpace: "nowrap" }} onClick={() => setImportSummary(null)}>Fermer ✕</button>
+        </div>
+      )}
 
       <div className="tabs">
         {months.map((m) => (
@@ -763,26 +774,6 @@ function BudgetTracker({ household, onLogout, onRename }) {
           </div>
         )}
         <div className="totals-row"><span>Total épargne</span><span>{fmt(curSavings)}</span></div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-title">Importer un relevé bancaire (CSV)</div>
-        <div className="import-drop">
-          <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={handleCsvFile} style={{ display: "none" }} />
-          <button className="btn" style={{ width: "auto", padding: "10px 24px" }} onClick={() => csvInputRef.current && csvInputRef.current.click()}>
-            Importer
-          </button>
-          <div className="import-hint">
-            Exportez votre relevé en CSV depuis votre banque (ex: Boursorama : Comptes → Télécharger → CSV), puis cliquez sur « Importer » et choisissez le fichier.
-            Seules les dépenses (montants négatifs) sont importées, pour le mois « {curMonthLabel} ». Import instantané et enregistré — vous classez les catégories ensuite, tranquillement, dans « Transactions » ci-dessous.
-          </div>
-        </div>
-        {importSummary && (
-          <div className="import-summary" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-            <span>{importSummary}</span>
-            <button className="add-line" style={{ display: "inline", padding: 0, whiteSpace: "nowrap" }} onClick={() => setImportSummary(null)}>Fermer ✕</button>
-          </div>
-        )}
       </div>
 
       <div className="panel">
