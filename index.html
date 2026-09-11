@@ -687,9 +687,6 @@ function BudgetTracker({ household, onLogout, onRename }) {
         </div>
         <div className="head-actions">
           <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={handleCsvFile} style={{ display: "none" }} />
-          <button className="reset-btn" onClick={() => csvInputRef.current && csvInputRef.current.click()} title={`Importer un relevé CSV pour ${curMonthLabel}`}>
-            ⭱ Importer un relevé (CSV)
-          </button>
           <span className="save-pill">{saveState === "saving" ? "Enregistrement…" : saveState === "error" ? "Erreur d'enregistrement" : "Enregistré"}</span>
           <span className="invite-pill">Code d'invitation : <span className="invite-code">{household.invite_code}</span></span>
           <button className="logout-btn" onClick={onLogout}>Se déconnecter</button>
@@ -735,6 +732,14 @@ function BudgetTracker({ household, onLogout, onRename }) {
           </div>
         ))}
         <button className="tab-add" onClick={addMonth} title="Ajouter un mois">+</button>
+        <button
+          className="tab-add"
+          style={{ color: "var(--ink-soft)" }}
+          onClick={() => csvInputRef.current && csvInputRef.current.click()}
+          title={`Importer un relevé CSV pour ${curMonthLabel}`}
+        >
+          ⭱ Importer
+        </button>
       </div>
 
       <div className="panel">
