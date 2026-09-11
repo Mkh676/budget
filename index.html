@@ -143,7 +143,7 @@ const seedSavings = { [seedMonths[0].id]: 0 };
 const seedActuals = { [seedMonths[0].id]: {} };
 
 function emptyBudgetDoc() {
-  return { categories: seedCategories, months: seedMonths, income: seedIncome, savings: seedSavings, actuals: seedActuals, transactions: {} };
+  return { categories: seedCategories, months: seedMonths, income: seedIncome, savings: seedSavings, actuals: seedActuals, transactions: {}, recurringFees: [] };
 }
 
 // ---------- Charts ----------
@@ -282,6 +282,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const [savings, setSavings] = useState({});
   const [actuals, setActuals] = useState({});
   const [transactions, setTransactions] = useState({}); // { [monthId]: [{id, date, label, amount, categoryId}] }
+  const [recurringFees, setRecurringFees] = useState([]); // [{id, label, amount, dayOfMonth, categoryId}] — household-wide, not per-month
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [saveState, setSaveState] = useState("idle");
   const [showTransactions, setShowTransactions] = useState(true);
@@ -322,7 +323,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
       }
 
       setCategories(doc.categories); setMonths(doc.months); setIncome(doc.income);
-      setSavings(doc.savings);
+      setSavings(doc.savings); setRecurringFees(doc.recurringFees || []);
       const remembered = localStorage.getItem(lastMonthKey);
       const validMonth = doc.months.find((m) => m.id === remembered);
       setSelectedMonth((validMonth && validMonth.id) || doc.months[0]?.id || null);
@@ -385,12 +386,12 @@ function BudgetTracker({ household, onLogout, onRename }) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       const { error } = await sb.from("household_budget")
-        .update({ data: { categories, months, income, savings, actuals, transactions, migratedActuals: true }, updated_at: new Date().toISOString() })
+        .update({ data: { categories, months, income, savings, actuals, transactions, recurringFees, migratedActuals: true }, updated_at: new Date().toISOString() })
         .eq("household_id", household.id);
       setSaveState(error ? "error" : "saved");
     }, 500);
     return () => clearTimeout(saveTimer.current);
-  }, [categories, months, income, savings, actuals, transactions, loaded]);
+  }, [categories, months, income, savings, actuals, transactions, recurringFees, loaded]);
 
   const monthTransactions = (m) => transactions[m] || [];
   const categoryTotal = (m, catId) => monthTransactions(m).filter((t) => t.categoryId === catId).reduce((s, t) => s + t.amount, 0);
@@ -658,6 +659,13 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const toggleRecurring = (m, txId) =>
     setTransactions((t) => ({ ...t, [m]: (t[m] || []).map((tx) => (tx.id === txId ? { ...tx, recurring: !tx.recurring } : tx)) }));
 
+  // ---------- Recurring fees (household-wide schedule, not tied to a specific month) ----------
+  const addRecurringFee = () =>
+    setRecurringFees((fs) => [...fs, { id: uid("fee"), label: "Nouvelle charge", amount: 0, dayOfMonth: 1, categoryId: "" }]);
+  const updateRecurringFee = (id, field, value) =>
+    setRecurringFees((fs) => fs.map((f) => (f.id === id ? { ...f, [field]: value } : f)));
+  const removeRecurringFee = (id) => setRecurringFees((fs) => fs.filter((f) => f.id !== id));
+
 
   if (!loaded || !selectedMonth) return <div style={{ padding: 40 }}>Chargement du budget…</div>;
 
@@ -677,6 +685,18 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const curSavings = monthSavings(selectedMonth);
   const curRestant = monthRestant(selectedMonth);
   const curMonthLabel = months.find((m) => m.id === selectedMonth)?.label;
+
+  // Recurring fees: split into "already taken" vs "still pending" based on
+  // today's real date — only meaningful when viewing the actual current month.
+  const today = new Date();
+  const todayKey = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0");
+  const selectedMonthObj = months.find((m) => m.id === selectedMonth);
+  const isRealCurrentMonth = selectedMonthObj?.date?.slice(0, 7) === todayKey;
+  const todayDay = today.getDate();
+  const passedFees = isRealCurrentMonth ? recurringFees.filter((f) => (Number(f.dayOfMonth) || 1) <= todayDay) : [];
+  const pendingFees = isRealCurrentMonth ? recurringFees.filter((f) => (Number(f.dayOfMonth) || 1) > todayDay) : recurringFees;
+  const passedFeesTotal = passedFees.reduce((s, f) => s + (Number(f.amount) || 0), 0);
+  const pendingFeesTotal = pendingFees.reduce((s, f) => s + (Number(f.amount) || 0), 0);
 
   return (
     <div className="ledger">
@@ -795,6 +815,42 @@ function BudgetTracker({ household, onLogout, onRename }) {
           </div>
         )}
         <div className="totals-row"><span>Total épargne</span><span>{fmt(curSavings)}</span></div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-title">Charges récurrentes (prélèvements prévus)</div>
+        {recurringFees.map((f) => (
+          <div className="row" key={f.id} style={{ gridTemplateColumns: "1fr 90px 110px 32px" }}>
+            <input type="text" value={f.label} onChange={(e) => updateRecurringFee(f.id, "label", e.target.value)} />
+            <input type="number" value={f.amount} onChange={(e) => updateRecurringFee(f.id, "amount", parseFloat(e.target.value) || 0)} />
+            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--ink-soft)" }}>
+              le
+              <input
+                type="number" min="1" max="31"
+                style={{ width: 44, fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4, textAlign: "center" }}
+                value={f.dayOfMonth}
+                onChange={(e) => updateRecurringFee(f.id, "dayOfMonth", Math.min(31, Math.max(1, parseInt(e.target.value) || 1)))}
+              />
+              {isRealCurrentMonth && ((Number(f.dayOfMonth) || 1) <= todayDay
+                ? <span title="Déjà prélevé (estimé)" style={{ color: "var(--green)" }}>✓</span>
+                : <span title="Encore à venir" style={{ color: "var(--gold)" }}>⏳</span>
+              )}
+            </div>
+            <button className="icon-btn" onClick={() => removeRecurringFee(f.id)}>✕</button>
+          </div>
+        ))}
+        <button className="add-line" onClick={addRecurringFee}>+ Ajouter une charge récurrente</button>
+        {recurringFees.length > 0 && (
+          isRealCurrentMonth ? (
+            <div className="import-hint" style={{ padding: "8px 16px 12px" }}>
+              Aujourd'hui (le {todayDay}) : <strong>{fmt(passedFeesTotal)}</strong> déjà prélevé(s) estimé(s) · <strong style={{ color: "var(--gold)" }}>{fmt(pendingFeesTotal)}</strong> encore à venir ce mois-ci. Sur le solde actuel de votre compte, gardez cette réserve de côté.
+            </div>
+          ) : (
+            <div className="import-hint" style={{ padding: "8px 16px 12px" }}>
+              Total prévu par mois : {fmt(pendingFeesTotal)}. Le suivi « déjà prélevé / à venir » ne s'affiche que sur le mois en cours.
+            </div>
+          )
+        )}
       </div>
 
       <div className="panel">
