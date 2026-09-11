@@ -396,6 +396,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
   // ---------- CSV import (bank statement) ----------
   const [importRows, setImportRows] = useState(null); // null = no import in progress
+  const [importMonth, setImportMonth] = useState(null); // the month this pending import belongs to
 
   const guessCategoryId = (label) => {
     const l = (label || "").toLowerCase();
@@ -431,7 +432,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const findDuplicateInMonth = (m, candidate, excludeId) =>
     (transactions[m] || []).find((tx) => tx.id !== excludeId && isDuplicateOf(tx, candidate));
 
-  const parseCsv = (text) => {
+  const parseCsv = (text, targetMonth) => {
     text = text.replace(/^\uFEFF/, ""); // strip UTF-8 BOM some bank exports include
     const lines = text.split(/\r\n|\n/).filter((l) => l.trim().length > 0);
     if (lines.length < 2) return [];
@@ -451,7 +452,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
     // duplicates. Extra repeats beyond that (e.g. two separate same-day,
     // same-amount purchases at the same place) are treated as genuinely new.
     const existingCounts = {};
-    for (const tx of transactions[selectedMonth] || []) {
+    for (const tx of transactions[targetMonth] || []) {
       const sig = signatureOf(tx);
       existingCounts[sig] = (existingCounts[sig] || 0) + 1;
     }
@@ -486,13 +487,15 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const handleCsvFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    const targetMonth = selectedMonth; // capture now — importing shouldn't drift if the user switches tabs later
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const parsed = parseCsv(ev.target.result);
+      const parsed = parseCsv(ev.target.result, targetMonth);
       if (parsed === "invalid") {
         window.alert("Colonnes attendues introuvables (date, libellé/label, montant). Vérifiez le format du fichier exporté.");
         return;
       }
+      setImportMonth(targetMonth);
       setImportRows(parsed);
     };
     reader.readAsText(file, "utf-8");
@@ -513,11 +516,12 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
   const confirmImport = () => {
     const classified = importRows.filter((r) => r.categoryId && !r.duplicate);
-    setTransactions((t) => ({ ...t, [selectedMonth]: [...(t[selectedMonth] || []), ...classified.map(({ duplicate, ...r }) => r)] }));
+    setTransactions((t) => ({ ...t, [importMonth]: [...(t[importMonth] || []), ...classified.map(({ duplicate, ...r }) => r)] }));
     setImportRows(null);
+    setImportMonth(null);
   };
 
-  const cancelImport = () => setImportRows(null);
+  const cancelImport = () => { setImportRows(null); setImportMonth(null); };
 
   // ---------- Transaction log (editable, per month) ----------
   const [txErrors, setTxErrors] = useState({}); // { [txId]: "error message" }, kept for inline highlight too
@@ -677,7 +681,9 @@ function BudgetTracker({ household, onLogout, onRename }) {
         {importRows && importRows.length > 0 && (
           <React.Fragment>
             <div className="import-summary">
-              {importRows.length} transaction(s) trouvée(s)
+              Import en attente pour <strong>{months.find((m) => m.id === importMonth)?.label || importMonth}</strong>
+              {importMonth !== selectedMonth && " (vous consultez un autre mois en ce moment, sans risque — l'import reste rattaché au bon mois)"}.
+              {" "}{importRows.length} transaction(s) trouvée(s)
               {importRows.some((r) => r.duplicate) && <span> — {importRows.filter((r) => r.duplicate).length} doublon(s) détecté(s) et exclu(s) automatiquement</span>}
               . Assignez une catégorie à chacune (ou laissez « Ignorer »).
             </div>
