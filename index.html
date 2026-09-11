@@ -287,6 +287,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const [saveState, setSaveState] = useState("idle");
   const [showTransactions, setShowTransactions] = useState(true);
   const [showRecurringSection, setShowRecurringSection] = useState(false);
+  const [showRecurringFees, setShowRecurringFees] = useState(true);
   const saveTimer = useRef(null);
   const csvInputRef = useRef(null);
   const lastMonthKey = "budget:lastMonth:" + household.id;
@@ -828,42 +829,49 @@ function BudgetTracker({ household, onLogout, onRename }) {
       </div>
 
       <div className="panel">
-        <div className="panel-title">Charges récurrentes (prélèvements prévus)</div>
-        {recurringFees.map((f) => {
-          const status = feeStatus(f);
-          const catName = categories.find((c) => c.id === f.categoryId)?.name;
-          const statusIcon =
-            status === "confirmed" ? <span title={`Confirmé — transaction trouvée dans « ${catName} » ce mois-ci`} style={{ color: "var(--green)" }}>✓</span> :
-            status === "overdue" ? <span title="Le jour est passé mais aucune transaction trouvée dans cette catégorie — pas encore importée, ou en retard" style={{ color: "var(--red)" }}>⚠</span> :
-            status === "upcoming" ? <span title="Pas encore dû ce mois-ci" style={{ color: "var(--gold)" }}>⏳</span> :
-            <span title="Pas encore de transaction correspondante ce mois-ci" style={{ color: "var(--ink-soft)" }}>·</span>;
-          return (
-            <div className="row" key={f.id} style={{ gridTemplateColumns: "1fr 90px 140px 110px 32px" }}>
-              <input type="text" value={f.label} onChange={(e) => updateRecurringFee(f.id, "label", e.target.value)} />
-              <input type="number" value={f.amount} onChange={(e) => updateRecurringFee(f.id, "amount", parseFloat(e.target.value) || 0)} />
-              <select value={f.categoryId} onChange={(e) => updateRecurringFee(f.id, "categoryId", e.target.value)} style={{ fontFamily: "var(--font-mono)", fontSize: 12, padding: 4, border: "1px solid var(--rule)", borderRadius: 3, background: "#fff" }}>
-                <option value="">— Catégorie —</option>
-                {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
-              </select>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--ink-soft)" }}>
-                le
-                <input
-                  type="number" min="1" max="31"
-                  style={{ width: 40, fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4, textAlign: "center" }}
-                  value={f.dayOfMonth}
-                  onChange={(e) => updateRecurringFee(f.id, "dayOfMonth", Math.min(31, Math.max(1, parseInt(e.target.value) || 1)))}
-                />
-                {statusIcon}
+        <div className="panel-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setShowRecurringFees((v) => !v)}>
+          <span>Charges récurrentes (prélèvements prévus) — {recurringFees.length}</span>
+          <span style={{ fontSize: 12, color: "var(--gold)" }}>{showRecurringFees ? "Masquer ▲" : "Voir / modifier ▼"}</span>
+        </div>
+        {showRecurringFees && (
+          <React.Fragment>
+            {recurringFees.map((f) => {
+              const status = feeStatus(f);
+              const catName = categories.find((c) => c.id === f.categoryId)?.name;
+              const statusIcon =
+                status === "confirmed" ? <span title={`Confirmé — transaction trouvée dans « ${catName} » ce mois-ci`} style={{ color: "var(--green)" }}>✓</span> :
+                status === "overdue" ? <span title="Le jour est passé mais aucune transaction trouvée dans cette catégorie — pas encore importée, ou en retard" style={{ color: "var(--red)" }}>⚠</span> :
+                status === "upcoming" ? <span title="Pas encore dû ce mois-ci" style={{ color: "var(--gold)" }}>⏳</span> :
+                <span title="Pas encore de transaction correspondante ce mois-ci" style={{ color: "var(--ink-soft)" }}>·</span>;
+              return (
+                <div className="row" key={f.id} style={{ gridTemplateColumns: "1fr 90px 140px 110px 32px" }}>
+                  <input type="text" value={f.label} onChange={(e) => updateRecurringFee(f.id, "label", e.target.value)} />
+                  <input type="number" value={f.amount} onChange={(e) => updateRecurringFee(f.id, "amount", parseFloat(e.target.value) || 0)} />
+                  <select value={f.categoryId} onChange={(e) => updateRecurringFee(f.id, "categoryId", e.target.value)} style={{ fontFamily: "var(--font-mono)", fontSize: 12, padding: 4, border: "1px solid var(--rule)", borderRadius: 3, background: "#fff" }}>
+                    <option value="">— Catégorie —</option>
+                    {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                  </select>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--ink-soft)" }}>
+                    le
+                    <input
+                      type="number" min="1" max="31"
+                      style={{ width: 40, fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4, textAlign: "center" }}
+                      value={f.dayOfMonth}
+                      onChange={(e) => updateRecurringFee(f.id, "dayOfMonth", Math.min(31, Math.max(1, parseInt(e.target.value) || 1)))}
+                    />
+                    {statusIcon}
+                  </div>
+                  <button className="icon-btn" onClick={() => removeRecurringFee(f.id)}>✕</button>
+                </div>
+              );
+            })}
+            <button className="add-line" onClick={addRecurringFee}>+ Ajouter une charge récurrente</button>
+            {recurringFees.length > 0 && (
+              <div className="import-hint" style={{ padding: "8px 16px 12px" }}>
+                <strong style={{ color: "var(--green)" }}>{fmt(confirmedTotal)}</strong> confirmée(s) par une vraie transaction ({confirmedFees.length}) · <strong style={{ color: "var(--gold)" }}>{fmt(outstandingTotal)}</strong> pas encore vue(s) ({outstandingFees.length}). Dès qu'une transaction apparaît dans la catégorie liée (import ou saisie manuelle), la charge passe automatiquement en « confirmé ».
               </div>
-              <button className="icon-btn" onClick={() => removeRecurringFee(f.id)}>✕</button>
-            </div>
-          );
-        })}
-        <button className="add-line" onClick={addRecurringFee}>+ Ajouter une charge récurrente</button>
-        {recurringFees.length > 0 && (
-          <div className="import-hint" style={{ padding: "8px 16px 12px" }}>
-            <strong style={{ color: "var(--green)" }}>{fmt(confirmedTotal)}</strong> confirmée(s) par une vraie transaction ({confirmedFees.length}) · <strong style={{ color: "var(--gold)" }}>{fmt(outstandingTotal)}</strong> pas encore vue(s) ({outstandingFees.length}). Dès qu'une transaction apparaît dans la catégorie liée (import ou saisie manuelle), la charge passe automatiquement en « confirmé ».
-          </div>
+            )}
+          </React.Fragment>
         )}
       </div>
 
