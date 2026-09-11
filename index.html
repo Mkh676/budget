@@ -400,16 +400,18 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const guessCategoryId = (label) => {
     const l = (label || "").toLowerCase();
     const rules = [
-      { ids: ["alimentation"], words: ["carrefour", "leclerc", "monoprix", "auchan", "lidl", "franprix", "intermarche", "supermarche", "casino"] },
+      { ids: ["alimentation"], words: ["carrefour", "leclerc", "monoprix", "auchan", "lidl", "franprix", "intermarche", "supermarche", "casino", "boucherie"] },
       { ids: ["essence"], words: ["total", "esso", "shell", "bp ", "station", "carburant"] },
+      { ids: ["voiture_entretien"], words: ["car wash", "garage", "vidange", "pneu"] },
       { ids: ["electricite"], words: ["edf", "engie", "totalenergies elec"] },
       { ids: ["internet"], words: ["free", "orange", "sfr", "bouygues", "sosh"] },
-      { ids: ["resto"], words: ["restaurant", "resto", "brasserie", "uber eats", "deliveroo"] },
+      { ids: ["resto"], words: ["restaurant", "resto", "brasserie", "uber eats", "deliveroo", "cafe"] },
+      { ids: ["weekends"], words: ["hotel", "booking.com", "bkg*", "airbnb", "camping"] },
       { ids: ["netflix"], words: ["netflix", "prime video", "amazon prime", "spotify", "disney"] },
       { ids: ["assurance_habitation"], words: ["assurance habitation", "maif", "macif", "matmut"] },
       { ids: ["voiture_assurance"], words: ["assurance auto", "assurance vehicule"] },
-      { ids: ["sante"], words: ["pharmacie", "medecin", "docteur", "dentiste"] },
-      { ids: ["pets"], words: ["veto", "vétérinaire", "veterinaire", "clinique veterinaire", "maxizoo", "animalerie", "wanimo", "zooplus"] },
+      { ids: ["sante"], words: ["pharmacie", "medecin", "docteur", "dentiste", "optique", "audition"] },
+      { ids: ["pets"], words: ["veto", "vétérinaire", "veterinaire", "clinique veterinaire", "maxizoo", "animalerie", "wanimo", "zooplus", "truffaut"] },
     ];
     for (const rule of rules) {
       if (rule.words.some((w) => l.includes(w))) {
@@ -418,6 +420,20 @@ function BudgetTracker({ household, onLogout, onRename }) {
       }
     }
     return "";
+  };
+
+  // BoursoBank (and similar exports) tag each transaction with their OWN
+  // category — far more reliable than guessing from the merchant name.
+  // Map their category labels to our category ids where there's a clean fit;
+  // anything not listed here falls back to guessCategoryId() on the label.
+  const BANK_CATEGORY_MAP = {
+    "alimentation": "alimentation",
+    "carburant": "essence",
+    "entretien - réparation": "voiture_entretien",
+    "hébergement (hôtels, camping…)": "weekends",
+    "loyers, charges": "loyer",
+    "restaurants, bars, discothèques…": "resto",
+    "optique, audition…": "sante",
   };
 
   // ---------- Duplicate detection (same date + same amount + same label) ----------
@@ -444,6 +460,8 @@ function BudgetTracker({ household, onLogout, onRename }) {
     // "balance") — and repeats "Solde" again later for the real running balance.
     // findIndex takes the FIRST match, which is correctly the transaction amount.
     const amountIdx = header.findIndex((h) => h.includes("amount") || h.includes("montant") || h.includes("solde"));
+    // Optional: the bank's own category column, if present (used for auto-categorization below).
+    const bankCatIdx = header.findIndex((h) => h === "catégorie" || h === "categorie");
     if (dateIdx === -1 || labelIdx === -1 || amountIdx === -1) return "invalid";
 
     // Count how many transactions with each exact signature are already saved
@@ -463,20 +481,24 @@ function BudgetTracker({ household, onLogout, onRename }) {
       if (cells.length <= Math.max(dateIdx, labelIdx, amountIdx)) continue;
       const rawAmount = (cells[amountIdx] || "").replace(/\s/g, "").replace(",", ".");
       const amount = parseFloat(rawAmount);
-      if (isNaN(amount) || amount >= 0) continue; // only keep expenses (negative amounts)
+      if (isNaN(amount)) continue;
+      // Sign convention in the app: positive = money spent, negative = money
+      // received. The bank's sign is the opposite (negative = spent), so flip it.
       const label = cells[labelIdx] || "(sans libellé)";
-      const candidate = { date: cells[dateIdx] || "", label, amount: Math.abs(amount) };
+      const candidate = { date: cells[dateIdx] || "", label, amount: -amount };
       const sig = signatureOf(candidate);
       const allowed = existingCounts[sig] || 0;
       const used = consumed[sig] || 0;
       const isDup = used < allowed;
       consumed[sig] = used + 1;
+      const bankCat = bankCatIdx !== -1 ? (cells[bankCatIdx] || "").trim().toLowerCase() : "";
+      const categoryId = isDup ? "" : (BANK_CATEGORY_MAP[bankCat] || guessCategoryId(label));
       rows.push({
         id: uid("tx"),
         date: candidate.date,
         label,
         amount: candidate.amount,
-        categoryId: isDup ? "" : guessCategoryId(label),
+        categoryId,
         duplicate: isDup,
       });
     }
@@ -535,7 +557,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
     const current = (transactions[m] || []).find((tx) => tx.id === txId);
     if (!current) return;
     const candidate = { ...current, [field]: value };
-    const isComplete = (candidate.date || "").trim() !== "" && Number(candidate.amount) > 0 && (candidate.label || "").trim() !== "";
+    const isComplete = (candidate.date || "").trim() !== "" && Number(candidate.amount) !== 0 && (candidate.label || "").trim() !== "";
     if (isComplete) {
       const dup = findDuplicateInMonth(m, candidate, txId);
       if (dup) {
@@ -700,8 +722,9 @@ function BudgetTracker({ household, onLogout, onRename }) {
                       />
                       <input
                         type="number"
-                        style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4 }}
+                        style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4, color: tx.amount < 0 ? "var(--green)" : "var(--ink)" }}
                         value={tx.amount}
+                        title={tx.amount < 0 ? "Argent reçu (réduit le total dépensé)" : "Dépense"}
                         onChange={(e) => updateTransactionField(selectedMonth, tx.id, "amount", parseFloat(e.target.value) || 0)}
                       />
                       <div style={{ display: "flex", gap: 6 }}>
