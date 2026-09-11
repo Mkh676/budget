@@ -432,6 +432,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
     (transactions[m] || []).find((tx) => tx.id !== excludeId && isDuplicateOf(tx, candidate));
 
   const parseCsv = (text) => {
+    text = text.replace(/^\uFEFF/, ""); // strip UTF-8 BOM some bank exports include
     const lines = text.split(/\r\n|\n/).filter((l) => l.trim().length > 0);
     if (lines.length < 2) return [];
     const delim = (lines[0].match(/;/g) || []).length >= (lines[0].match(/,/g) || []).length ? ";" : ",";
@@ -439,7 +440,10 @@ function BudgetTracker({ household, onLogout, onRename }) {
     const header = splitLine(lines[0]).map((h) => h.toLowerCase());
     const dateIdx = header.findIndex((h) => h.includes("date"));
     const labelIdx = header.findIndex((h) => h.includes("label") || h.includes("libell"));
-    const amountIdx = header.findIndex((h) => h.includes("amount") || h.includes("montant"));
+    // BoursoBank confusingly calls the transaction amount column "Solde" (normally
+    // "balance") — and repeats "Solde" again later for the real running balance.
+    // findIndex takes the FIRST match, which is correctly the transaction amount.
+    const amountIdx = header.findIndex((h) => h.includes("amount") || h.includes("montant") || h.includes("solde"));
     if (dateIdx === -1 || labelIdx === -1 || amountIdx === -1) return "invalid";
 
     // Count how many transactions with each exact signature are already saved
