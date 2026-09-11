@@ -348,14 +348,16 @@ function BudgetTracker({ household, onLogout, onRename }) {
     if (months.some((m) => m.date && m.date.slice(0, 7) === currentKey)) return;
 
     // Not tagged, but a tab's NAME already looks like this month (e.g. the
-    // user manually created/renamed one) — attach the date so future checks
-    // are reliable, without creating a duplicate.
+    // user manually created/renamed one, with or without a year in the
+    // label) — attach the date so future checks are reliable, without
+    // creating a duplicate. Skip tabs that already have a *different* date.
     const monthNameLower = MONTH_NAMES_FR[now.getMonth()];
     const yearStr = String(now.getFullYear());
     const byLabel = months.find((m) => {
+      if (m.date) return false;
       const l = m.label.toLowerCase();
-      return l.includes(monthNameLower) && l.includes(yearStr);
-    });
+      return l.includes(monthNameLower);
+    }) || months.find((m) => !m.date && m.label.toLowerCase().includes(yearStr));
     if (byLabel) {
       setMonths((ms) => ms.map((m) => (m.id === byLabel.id ? { ...m, date: currentKey + "-01" } : m)));
       return;
@@ -734,7 +736,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
         <button className="tab-add" onClick={addMonth} title="Ajouter un mois">+</button>
         <button
           className="tab-add"
-          style={{ color: "var(--ink-soft)" }}
+          style={{ color: "var(--ink-soft)", marginLeft: "auto" }}
           onClick={() => csvInputRef.current && csvInputRef.current.click()}
           title={`Importer un relevé CSV pour ${curMonthLabel}`}
         >
