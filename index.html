@@ -112,6 +112,39 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const fmt = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " €";
 function uid(prefix) { return prefix + "_" + Math.random().toString(36).slice(2, 9); }
 
+// ---------- Bank label normalization (used for auto-categorization) ----------
+// Lowercase, strip accents, turn punctuation into spaces: "Vétérinaire BKG*Hôtel" -> "veterinaire bkg hotel".
+function normText(s) {
+  return (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ").trim();
+}
+// Whole-word / whole-phrase match on normalized text, so "free" doesn't hit "freelance".
+function hasWord(normalized, word) {
+  const w = normText(word);
+  return w !== "" && (" " + normalized + " ").includes(" " + w + " ");
+}
+// Operation-type prefixes banks prepend to the merchant name.
+const LABEL_PREFIXES = /^(paiement par carte|paiement cb|carte|cb|prlv sepa|prlv|prelevement|vir sepa inst|vir sepa|vir inst|vir|virement|retrait dab|retrait|avoir|achat)\b\s*/;
+const LABEL_NOISE_WORDS = new Set([
+  "cb", "ref", "fact", "facture", "echeance", "le", "la", "les", "du", "de", "des", "at", "sa", "sas", "sarl",
+  "janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre",
+]);
+// Stable "merchant" key for a bank label: drops the operation prefix, dates,
+// card numbers and references, keeps the first 3 meaningful words.
+// "CARTE 12/09/26 CARREFOUR MARKET CB*1234" -> "carrefour market"
+function merchantKey(label) {
+  let s = (label || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  s = s.replace(/\b\d{1,2}[\/.-]\d{1,2}([\/.-]\d{2,4})?\b/g, " "); // dates
+  s = normText(s);
+  if (/^retrait\b/.test(s)) return "retrait dab"; // cash withdrawals: one key, not the ATM's city
+  let prev;
+  do { prev = s; s = s.replace(LABEL_PREFIXES, ""); } while (s !== prev);
+  // Drop numbers/refs like "x1234", and noise words (incl. month names, so
+  // "SALAIRE SEPTEMBRE" and "SALAIRE OCTOBRE" share the same key).
+  const words = s.split(" ").filter((w) => w.length > 1 && !/\d/.test(w) && !LABEL_NOISE_WORDS.has(w));
+  return words.slice(0, 3).join(" ");
+}
+
 const MONTH_NAMES_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 // Best-effort "year-month" key parsed out of a free-text label like "Novembre 2026",
 // used as a fallback for months that were never tagged with a real `date`.
@@ -309,6 +342,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const [actuals, setActuals] = useState({});
   const [transactions, setTransactions] = useState({}); // { [monthId]: [{id, date, label, amount, categoryId}] }
   const [recurringFees, setRecurringFees] = useState([]); // [{id, label, amount, dayOfMonth, categoryId}] — household-wide, not per-month
+  const [categoryRules, setCategoryRules] = useState({}); // { [merchantKey]: categoryId } — learned from manual categorization
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [saveState, setSaveState] = useState("idle");
   const [showTransactions, setShowTransactions] = useState(true);
@@ -353,7 +387,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
       }
 
       setCategories(doc.categories); setMonths(sortMonthsChronologically(doc.months)); setIncome(doc.income);
-      setSavings(doc.savings); setRecurringFees(doc.recurringFees || []);
+      setSavings(doc.savings); setRecurringFees(doc.recurringFees || []); setCategoryRules(doc.categoryRules || {});
       const remembered = localStorage.getItem(lastMonthKey);
       const validMonth = doc.months.find((m) => m.id === remembered);
       setSelectedMonth((validMonth && validMonth.id) || doc.months[0]?.id || null);
@@ -415,12 +449,12 @@ function BudgetTracker({ household, onLogout, onRename }) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       const { error } = await sb.from("household_budget")
-        .update({ data: { categories, months, income, savings, actuals, transactions, recurringFees, migratedActuals: true }, updated_at: new Date().toISOString() })
+        .update({ data: { categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, migratedActuals: true }, updated_at: new Date().toISOString() })
         .eq("household_id", household.id);
       setSaveState(error ? "error" : "saved");
     }, 500);
     return () => clearTimeout(saveTimer.current);
-  }, [categories, months, income, savings, actuals, transactions, recurringFees, loaded]);
+  }, [categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, loaded]);
 
   const monthTransactions = (m) => transactions[m] || [];
   const categoryTotal = (m, catId) => monthTransactions(m).filter((t) => t.categoryId === catId).reduce((s, t) => s + t.amount, 0);
@@ -519,25 +553,28 @@ function BudgetTracker({ household, onLogout, onRename }) {
   // ---------- CSV import (bank statement) ----------
   const [importSummary, setImportSummary] = useState(null); // transient success message after an import
 
-  const guessCategoryId = (label) => {
-    const l = (label || "").toLowerCase();
+  // Keyword fallback. Matching is on whole words of the normalized label
+  // (accents/punctuation stripped), so "free" doesn't match "freelance" and
+  // "total" doesn't match "totalenergies". Order matters: first rule wins, so
+  // more specific phrases (e.g. "amazon prime") come before generic ones ("amazon").
+  const guessCategoryId = (label, amount) => {
+    const l = normText(label);
     const rules = [
-      { ids: ["alimentation"], words: ["carrefour", "leclerc", "monoprix", "auchan", "lidl", "franprix", "intermarche", "supermarche", "casino", "boucherie"] },
-      { ids: ["essence"], words: ["total", "esso", "shell", "bp ", "station", "carburant"] },
-      { ids: ["voiture_entretien"], words: ["car wash", "garage", "vidange", "pneu"] },
-      { ids: ["electricite"], words: ["edf", "engie", "totalenergies elec"] },
-      { ids: ["internet"], words: ["free", "orange", "sfr", "bouygues", "sosh"] },
-      { ids: ["resto"], words: ["restaurant", "resto", "brasserie", "uber eats", "deliveroo", "cafe"] },
-      { ids: ["weekends"], words: ["hotel", "booking.com", "bkg*", "airbnb", "camping"] },
-      { ids: ["netflix"], words: ["netflix", "prime video", "amazon prime", "spotify", "disney"] },
-      { ids: ["alimentation"], words: ["amazon"] },
+      { ids: ["electricite"], words: ["edf", "engie", "totalenergies electricite", "totalenergies elec", "ekwateur", "enercoop"] },
+      { ids: ["essence"], words: ["total", "totalenergies", "esso", "shell", "bp", "avia", "station", "station service", "carburant"] },
+      { ids: ["voiture_entretien"], words: ["car wash", "garage", "vidange", "pneu", "pneus", "norauto", "feu vert", "midas", "speedy"] },
+      { ids: ["internet"], words: ["free", "free mobile", "freebox", "orange", "sfr", "bouygues", "bouygues telecom", "sosh", "red by sfr"] },
+      { ids: ["netflix"], words: ["netflix", "prime video", "amazon prime", "spotify", "disney", "disney plus", "deezer", "canal"] },
+      { ids: ["resto"], words: ["restaurant", "resto", "brasserie", "uber eats", "deliveroo", "cafe", "mcdonald", "mcdonalds", "burger king", "kfc", "boulangerie"] },
+      { ids: ["weekends"], words: ["hotel", "booking com", "bkg", "airbnb", "camping", "sncf", "ouigo"] },
+      { ids: ["alimentation"], words: ["carrefour", "leclerc", "monoprix", "auchan", "lidl", "franprix", "intermarche", "supermarche", "super u", "hyper u", "casino supermarche", "geant casino", "casino shop", "petit casino", "picard", "aldi", "boucherie", "amazon"] },
       { ids: ["assurance_habitation"], words: ["assurance habitation", "maif", "macif", "matmut"] },
       { ids: ["voiture_assurance"], words: ["assurance auto", "assurance vehicule"] },
-      { ids: ["sante"], words: ["pharmacie", "medecin", "docteur", "dentiste", "optique", "audition"] },
-      { ids: ["pets"], words: ["veto", "vétérinaire", "veterinaire", "clinique veterinaire", "maxizoo", "animalerie", "wanimo", "zooplus", "truffaut"] },
+      { ids: ["sante"], words: ["pharmacie", "pharma", "medecin", "docteur", "dentiste", "optique", "opticien", "audition", "laboratoire", "kine"] },
+      { ids: ["pets"], words: ["veto", "veterinaire", "clinique veterinaire", "maxizoo", "animalerie", "wanimo", "zooplus", "truffaut"] },
     ];
     for (const rule of rules) {
-      if (rule.words.some((w) => l.includes(w))) {
+      if (rule.words.some((w) => hasWord(l, w))) {
         const match = categories.find((c) => rule.ids.includes(c.id));
         if (match) return match.id;
       }
@@ -546,17 +583,47 @@ function BudgetTracker({ household, onLogout, onRename }) {
     // Match by category NAME (not id) for things like Salaire/Épargne, since
     // these are often user-added categories with a random internal id rather
     // than one of our known default ids above.
-    const findByName = (needle) => categories.find((c) => c.name.toLowerCase().includes(needle));
-    if (["salaire", "paie", "paye"].some((w) => l.includes(w))) {
+    const findByName = (needle) => categories.find((c) => normText(c.name).includes(needle));
+    // Salary is money received (negative in the app's sign convention) — never guess it for a spending.
+    if (amount < 0 && ["salaire", "paie", "paye"].some((w) => hasWord(l, w))) {
       const cat = findByName("salaire");
       if (cat) return cat.id;
     }
-    if (["epargne", "épargne", "livret a", "ldd", "lep ", "pel "].some((w) => l.includes(w))) {
-      const cat = findByName("épargne") || findByName("epargne");
+    if (["epargne", "livret a", "livret", "ldd", "ldds", "lep", "pel"].some((w) => hasWord(l, w))) {
+      const cat = findByName("epargne");
       if (cat) return cat.id;
     }
 
     return "";
+  };
+
+  // Learned categories. Returns the category for a merchant key, in priority:
+  //  1. an explicit rule saved when the user picked a category by hand;
+  //  2. history — the category most often used for this merchant in past months.
+  // Categories that no longer exist are ignored.
+  const categoryExists = (id) => !!id && categories.some((c) => c.id === id);
+  const buildHistoryIndex = () => {
+    const counts = {}; // { [key]: { [catId]: n } }
+    for (const txs of Object.values(transactions)) {
+      for (const tx of txs || []) {
+        if (!tx.categoryId) continue;
+        const key = merchantKey(tx.label);
+        if (!key) continue;
+        counts[key] = counts[key] || {};
+        counts[key][tx.categoryId] = (counts[key][tx.categoryId] || 0) + 1;
+      }
+    }
+    const best = {};
+    for (const [key, byCat] of Object.entries(counts)) {
+      const [catId] = Object.entries(byCat).filter(([id]) => categoryExists(id)).sort((a, b) => b[1] - a[1])[0] || [];
+      if (catId) best[key] = catId;
+    }
+    return best;
+  };
+  const learnedCategoryId = (key, history) => {
+    if (!key) return "";
+    if (categoryExists(categoryRules[key])) return categoryRules[key];
+    return history[key] || "";
   };
 
   // BoursoBank (and similar exports) tag each transaction with their OWN
@@ -571,6 +638,10 @@ function BudgetTracker({ household, onLogout, onRename }) {
     "loyers, charges": "loyer",
     "restaurants, bars, discothèques…": "resto",
     "optique, audition…": "sante",
+  };
+  const bankCategoryId = (bankCat) => {
+    const id = BANK_CATEGORY_MAP[bankCat];
+    return categoryExists(id) ? id : "";
   };
 
   // ---------- Duplicate detection (same date + same amount + same label) ----------
@@ -611,6 +682,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
       existingCounts[sig] = (existingCounts[sig] || 0) + 1;
     }
     const consumed = {};
+    const history = buildHistoryIndex();
 
     const rows = [];
     for (let i = 1; i < lines.length; i++) {
@@ -629,7 +701,12 @@ function BudgetTracker({ household, onLogout, onRename }) {
       const isDup = used < allowed;
       consumed[sig] = used + 1;
       const bankCat = bankCatIdx !== -1 ? (cells[bankCatIdx] || "").trim().toLowerCase() : "";
-      const categoryId = isDup ? "" : (BANK_CATEGORY_MAP[bankCat] || guessCategoryId(label));
+      // Priority: what you taught it (rules/history) > bank's own category > keyword guess.
+      const categoryId = isDup ? "" : (
+        learnedCategoryId(merchantKey(label), history) ||
+        bankCategoryId(bankCat) ||
+        guessCategoryId(label, candidate.amount)
+      );
       rows.push({
         id: uid("tx"),
         date: candidate.date,
@@ -688,7 +765,25 @@ function BudgetTracker({ household, onLogout, onRename }) {
       setCategories((cs) => [...cs, { id: newId, name, budget: 0 }]);
       catId = newId;
     }
-    setTransactions((t) => ({ ...t, [m]: (t[m] || []).map((tx) => (tx.id === txId ? { ...tx, categoryId: catId } : tx)) }));
+    // Remember this choice for the merchant, so future imports categorize it
+    // automatically, and fill in other still-uncategorized rows of the same
+    // merchant this month. Already-categorized rows are left untouched.
+    const tx = (transactions[m] || []).find((x) => x.id === txId);
+    const key = tx ? merchantKey(tx.label) : "";
+    if (key) {
+      setCategoryRules((r) => {
+        const { [key]: _, ...rest } = r;
+        return catId ? { ...rest, [key]: catId } : rest;
+      });
+    }
+    setTransactions((t) => ({
+      ...t,
+      [m]: (t[m] || []).map((x) => {
+        if (x.id === txId) return { ...x, categoryId: catId };
+        if (catId && key && !x.categoryId && !x.recurring && merchantKey(x.label) === key) return { ...x, categoryId: catId };
+        return x;
+      }),
+    }));
   };
   const updateTransactionField = (m, txId, field, value) => {
     const current = (transactions[m] || []).find((tx) => tx.id === txId);
