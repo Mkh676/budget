@@ -125,6 +125,23 @@ function hasWord(normalized, word) {
 }
 // Operation-type prefixes banks prepend to the merchant name.
 const LABEL_PREFIXES = /^(paiement par carte|paiement cb|carte|cb|prlv sepa|prlv|prelevement|vir sepa inst|vir sepa|vir inst|vir|virement|retrait dab|retrait|avoir|achat)\b\s*/;
+// Kind of bank operation, from the label's prefix.
+function operationType(label) {
+  const s = normText(label);
+  if (/^(prlv|prelevement)\b/.test(s)) return "debit";      // direct debit: usually a subscription/utility
+  if (/^retrait\b/.test(s)) return "withdrawal";            // cash machine
+  if (/^(vir|virement)\b/.test(s)) return "transfer";
+  if (/^(carte|cb|paiement)\b/.test(s)) return "card";
+  return "";
+}
+// Day of month from a bank date ("2026-09-12" or "12/09/2026"), or null.
+function dayOfMonthFromDate(date) {
+  const d = (date || "").trim();
+  let m = d.match(/^\d{4}-\d{2}-(\d{2})/);
+  if (!m) m = d.match(/^(\d{1,2})[\/.-]\d{1,2}/);
+  const day = m ? parseInt(m[1], 10) : NaN;
+  return day >= 1 && day <= 31 ? day : null;
+}
 const LABEL_NOISE_WORDS = new Set([
   "cb", "ref", "fact", "facture", "echeance", "le", "la", "les", "du", "de", "des", "at", "sa", "sas", "sarl",
   "janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre",
@@ -597,10 +614,9 @@ function BudgetTracker({ household, onLogout, onRename }) {
     return "";
   };
 
-  // Learned categories. Returns the category for a merchant key, in priority:
-  //  1. an explicit rule saved when the user picked a category by hand;
-  //  2. history — the category most often used for this merchant in past months.
-  // Categories that no longer exist are ignored.
+  // Learned categories: explicit rules (categoryRules, saved when the user
+  // picks a category by hand) and history — the category most often used for
+  // each merchant in past months. Categories that no longer exist are ignored.
   const categoryExists = (id) => !!id && categories.some((c) => c.id === id);
   const buildHistoryIndex = () => {
     const counts = {}; // { [key]: { [catId]: n } }
@@ -620,10 +636,34 @@ function BudgetTracker({ household, onLogout, onRename }) {
     }
     return best;
   };
-  const learnedCategoryId = (key, history) => {
-    if (!key) return "";
-    if (categoryExists(categoryRules[key])) return categoryRules[key];
-    return history[key] || "";
+
+  // A transaction matches a recurring fee when the amounts agree (±5%, at
+  // least ±1 €) and the labels share a meaningful word. For a direct debit
+  // (PRLV) whose amount matches ONE fee almost exactly (±1%), the amount alone
+  // is enough — bank labels for direct debits are often cryptic.
+  const feeAmountClose = (fee, amount, tolerance) => {
+    const fa = Number(fee.amount) || 0;
+    return fa > 0 && amount > 0 && Math.abs(amount - fa) <= Math.max(1, fa * tolerance);
+  };
+  const feeLabelOverlap = (fee, label) => {
+    const txWords = new Set(normText(label).split(" "));
+    return merchantKey(fee.label).split(" ").some((w) => w.length >= 3 && txWords.has(w));
+  };
+  const matchRecurringFee = (label, amount) => {
+    const fees = recurringFees.filter((f) => categoryExists(f.categoryId));
+    const byLabel = fees.find((f) => feeAmountClose(f, amount, 0.05) && feeLabelOverlap(f, label));
+    if (byLabel) return byLabel;
+    if (operationType(label) === "debit") {
+      const byAmount = fees.filter((f) => (Number(f.amount) || 0) > 0 && Math.abs(amount - Number(f.amount)) <= Number(f.amount) * 0.01);
+      if (byAmount.length === 1) return byAmount[0];
+    }
+    return null;
+  };
+
+  // Categories for a cash withdrawal, matched by the category's NAME (user-created).
+  const withdrawalCategoryId = () => {
+    const cat = categories.find((c) => ["retrait", "espece", "liquide", "cash"].some((w) => normText(c.name).includes(w)));
+    return cat ? cat.id : "";
   };
 
   // BoursoBank (and similar exports) tag each transaction with their OWN
@@ -701,10 +741,15 @@ function BudgetTracker({ household, onLogout, onRename }) {
       const isDup = used < allowed;
       consumed[sig] = used + 1;
       const bankCat = bankCatIdx !== -1 ? (cells[bankCatIdx] || "").trim().toLowerCase() : "";
-      // Priority: what you taught it (rules/history) > bank's own category > keyword guess.
+      // Priority: explicit rule > matching recurring fee > history > bank's own category > type/keyword guess.
+      const key = merchantKey(label);
+      const fee = isDup ? null : matchRecurringFee(label, candidate.amount);
       const categoryId = isDup ? "" : (
-        learnedCategoryId(merchantKey(label), history) ||
+        (categoryExists(categoryRules[key]) && categoryRules[key]) ||
+        (fee && fee.categoryId) ||
+        history[key] ||
         bankCategoryId(bankCat) ||
+        (operationType(label) === "withdrawal" && withdrawalCategoryId()) ||
         guessCategoryId(label, candidate.amount)
       );
       rows.push({
@@ -713,6 +758,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
         label,
         amount: candidate.amount,
         categoryId,
+        ...(fee && fee.categoryId === categoryId ? { feeId: fee.id } : {}),
         duplicate: isDup,
       });
     }
@@ -812,6 +858,21 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const updateRecurringFee = (id, field, value) =>
     setRecurringFees((fs) => fs.map((f) => (f.id === id ? { ...f, [field]: value } : f)));
   const removeRecurringFee = (id) => setRecurringFees((fs) => fs.filter((f) => f.id !== id));
+  // Turn an imported direct debit into a recurring fee (label, amount, day and
+  // category taken from the transaction) and link the transaction to it.
+  const createFeeFromTransaction = (m, tx) => {
+    const key = merchantKey(tx.label);
+    const feeLabel = key ? key.replace(/\b\w/g, (c) => c.toUpperCase()) : tx.label;
+    const fee = { id: uid("fee"), label: feeLabel, amount: Math.abs(Number(tx.amount) || 0), dayOfMonth: dayOfMonthFromDate(tx.date) || 1, categoryId: tx.categoryId || "" };
+    setRecurringFees((fs) => [...fs, fee]);
+    setTransactions((t) => ({ ...t, [m]: (t[m] || []).map((x) => (x.id === tx.id ? { ...x, feeId: fee.id } : x)) }));
+    setShowRecurringFees(true);
+  };
+  // Direct debits not yet covered by a recurring fee: suggest adding one.
+  const suggestsRecurringFee = (tx) =>
+    operationType(tx.label) === "debit" && tx.amount > 0 && !tx.recurring &&
+    !(tx.feeId && recurringFees.some((f) => f.id === tx.feeId)) &&
+    !recurringFees.some((f) => feeAmountClose(f, tx.amount, 0.05) && feeLabelOverlap(f, tx.label));
 
 
   if (!loaded || !selectedMonth) return <div style={{ padding: 40 }}>Chargement du budget…</div>;
@@ -845,7 +906,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const todayDay = today.getDate();
 
   const feeStatus = (f) => {
-    const matched = f.categoryId && monthTransactions(selectedMonth).some((t) => t.categoryId === f.categoryId);
+    const matched = monthTransactions(selectedMonth).some((t) => t.feeId === f.id || (f.categoryId && t.categoryId === f.categoryId));
     if (matched) return "confirmed";
     if (isRealCurrentMonth) return (Number(f.dayOfMonth) || 1) <= todayDay ? "overdue" : "upcoming";
     return "unmatched";
@@ -1082,6 +1143,14 @@ function BudgetTracker({ household, onLogout, onRename }) {
                         <button className="icon-btn" onClick={() => removeTransaction(selectedMonth, tx.id)}>✕</button>
                       </div>
                     </div>
+                    {suggestsRecurringFee(tx) && (
+                      <div style={{ fontSize: 11, color: "var(--ink-soft)", padding: "0 16px 8px" }}>
+                        Prélèvement — pas encore dans vos charges récurrentes.{" "}
+                        <button className="btn-link" style={{ marginTop: 0, fontSize: 11 }} onClick={() => createFeeFromTransaction(selectedMonth, tx)}>
+                          + Ajouter comme charge récurrente
+                        </button>
+                      </div>
+                    )}
                     {txErrors[tx.id] && (
                       <div style={{ fontSize: 11, color: "var(--red)", padding: "0 16px 8px" }}>{txErrors[tx.id]}</div>
                     )}
