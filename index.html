@@ -142,6 +142,16 @@ function dayOfMonthFromDate(date) {
   const day = m ? parseInt(m[1], 10) : NaN;
   return day >= 1 && day <= 31 ? day : null;
 }
+// Bank date ("2026-09-12", "12/09/2026" or "12/09/26") -> days since epoch, or null.
+function dateToDayNumber(date) {
+  const d = (date || "").trim();
+  let y, mo, da, m;
+  if ((m = d.match(/^(\d{4})-(\d{2})-(\d{2})/))) [y, mo, da] = [+m[1], +m[2], +m[3]];
+  else if ((m = d.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/))) [da, mo, y] = [+m[1], +m[2], m[3].length === 2 ? 2000 + +m[3] : +m[3]];
+  else return null;
+  const t = Date.UTC(y, mo - 1, da);
+  return isNaN(t) ? null : Math.round(t / 86400000);
+}
 const LABEL_NOISE_WORDS = new Set([
   "cb", "ref", "fact", "facture", "echeance", "le", "la", "les", "du", "de", "des", "at", "sa", "sas", "sarl",
   "janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre",
@@ -473,6 +483,61 @@ function BudgetTracker({ household, onLogout, onRename }) {
     return () => clearTimeout(saveTimer.current);
   }, [categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, loaded]);
 
+  // ---------- Undo ----------
+  // Every change to the budget data pushes the previous state onto a stack.
+  // Changes less than 1 s apart (typing "125" in an amount) count as ONE step.
+  // Changes made automatically right after loading (e.g. creating this month's
+  // tab) are not undoable. History lives in memory only (lost on reload).
+  const undoStack = useRef([]);
+  const lastSnapshot = useRef(null);
+  const lastChangeAt = useRef(0);
+  const restoringUndo = useRef(false);
+  const undoReadyAt = useRef(0);
+  const [undoCount, setUndoCount] = useState(0);
+  useEffect(() => {
+    if (!loaded) return;
+    const snap = { categories, months, income, savings, actuals, transactions, recurringFees, categoryRules };
+    const now = Date.now();
+    if (!lastSnapshot.current) undoReadyAt.current = now + 1500;
+    if (restoringUndo.current) {
+      restoringUndo.current = false;
+      lastSnapshot.current = snap;
+      lastChangeAt.current = 0; // the next edit after an undo always starts a new step
+      return;
+    }
+    if (lastSnapshot.current && now >= undoReadyAt.current && now - lastChangeAt.current > 1000) {
+      undoStack.current = [...undoStack.current.slice(-49), lastSnapshot.current];
+      setUndoCount(undoStack.current.length);
+    }
+    if (lastSnapshot.current) lastChangeAt.current = now;
+    lastSnapshot.current = snap;
+  }, [categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, loaded]);
+
+  const undo = () => {
+    const prev = undoStack.current[undoStack.current.length - 1];
+    if (!prev) return;
+    undoStack.current = undoStack.current.slice(0, -1);
+    setUndoCount(undoStack.current.length);
+    restoringUndo.current = true;
+    setCategories(prev.categories); setMonths(prev.months); setIncome(prev.income); setSavings(prev.savings);
+    setActuals(prev.actuals); setTransactions(prev.transactions); setRecurringFees(prev.recurringFees); setCategoryRules(prev.categoryRules);
+    if (!prev.months.some((m) => m.id === selectedMonth)) setSelectedMonth(prev.months[0]?.id || null);
+  };
+  // Ctrl+Z / Cmd+Z undoes the last change (controlled inputs have no reliable native undo).
+  const undoRef = useRef(undo);
+  undoRef.current = undo;
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+        if (undoStack.current.length === 0) return;
+        e.preventDefault();
+        undoRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const monthTransactions = (m) => transactions[m] || [];
   const categoryTotal = (m, catId) => monthTransactions(m).filter((t) => t.categoryId === catId).reduce((s, t) => s + t.amount, 0);
 
@@ -569,6 +634,43 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
   // ---------- CSV import (bank statement) ----------
   const [importSummary, setImportSummary] = useState(null); // transient success message after an import
+
+  // Imported CSV files are kept (table household_imports) so they can be
+  // downloaded again later. The list is loaded without the file contents;
+  // a file's content is only fetched when it's downloaded.
+  const [importFiles, setImportFiles] = useState([]);
+  const [showImportFiles, setShowImportFiles] = useState(false);
+  const loadImportFiles = async () => {
+    const { data, error } = await sb.from("household_imports")
+      .select("id, file_name, month_id, imported_count, skipped_count, created_at")
+      .eq("household_id", household.id).order("created_at", { ascending: false });
+    if (!error) setImportFiles(data || []);
+  };
+  useEffect(() => { loadImportFiles(); }, [household.id]);
+  const saveImportFile = async (fileName, content, monthId, importedCount, skippedCount) => {
+    const { error } = await sb.from("household_imports").insert({
+      household_id: household.id, month_id: monthId, file_name: fileName, content,
+      imported_count: importedCount, skipped_count: skippedCount,
+    });
+    if (error) setImportSummary((msg) => (msg || "") + " ⚠ Le fichier CSV n'a pas pu être archivé.");
+    loadImportFiles();
+  };
+  const downloadImportFile = async (f) => {
+    const { data, error } = await sb.from("household_imports").select("content").eq("id", f.id).maybeSingle();
+    if (error || !data) { window.alert("Téléchargement impossible."); return; }
+    const blob = new Blob([data.content], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = f.file_name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const deleteImportFile = async (f) => {
+    if (!window.confirm(`Supprimer le fichier « ${f.file_name} » ? (Les transactions importées restent.)`)) return;
+    const { error } = await sb.from("household_imports").delete().eq("id", f.id);
+    if (error) { window.alert("Suppression impossible."); return; }
+    setImportFiles((fs) => fs.filter((x) => x.id !== f.id));
+  };
 
   // Keyword fallback. Matching is on whole words of the normalized label
   // (accents/punctuation stripped), so "free" doesn't match "freelance" and
@@ -712,19 +814,38 @@ function BudgetTracker({ household, onLogout, onRename }) {
     const bankCatIdx = header.findIndex((h) => h === "catégorie" || h === "categorie");
     if (dateIdx === -1 || labelIdx === -1 || amountIdx === -1) return "invalid";
 
-    // Count how many transactions with each exact signature are already saved
-    // for this month — only THAT many repeats in the new file count as
-    // duplicates. Extra repeats beyond that (e.g. two separate same-day,
-    // same-amount purchases at the same place) are treated as genuinely new.
-    const existingCounts = {};
-    for (const tx of transactions[targetMonth] || []) {
-      const sig = signatureOf(tx);
-      existingCounts[sig] = (existingCounts[sig] || 0) + 1;
+    // Re-importing is always safe: a statement exported on the 10th and another
+    // on the 28th overlap, and the overlap is skipped. Each file row is matched
+    // against ONE transaction already saved (in any month), so two genuine
+    // same-day, same-amount purchases in the file are still both imported if
+    // only one was saved before. Saved rows are compared on their ORIGINAL
+    // bank data (importSig), so renaming/fixing an imported row doesn't make
+    // it come back — while a row you deleted is simply missing, and is
+    // imported again.
+    // Pass 1 matches exact bank data; pass 2 catches small changes between two
+    // exports (e.g. a pending card payment whose date or label settled
+    // differently): same amount, same merchant, dates within 3 days.
+    const pool = [];
+    for (const txs of Object.values(transactions)) {
+      for (const tx of txs || []) {
+        pool.push({ sig: tx.importSig || signatureOf(tx), amount: Number(tx.amount) || 0, key: merchantKey(tx.label), day: dateToDayNumber(tx.date), claimed: false });
+      }
     }
-    const consumed = {};
+    const claimExact = (sig) => {
+      const hit = pool.find((p) => !p.claimed && p.sig === sig);
+      if (hit) hit.claimed = true;
+      return !!hit;
+    };
+    const claimFuzzy = (c) => {
+      const key = merchantKey(c.label), day = dateToDayNumber(c.date);
+      if (!key || day === null) return false;
+      const hit = pool.find((p) => !p.claimed && p.key === key && p.day !== null && Math.abs(p.day - day) <= 3 && Math.abs(p.amount - c.amount) < 0.005);
+      if (hit) hit.claimed = true;
+      return !!hit;
+    };
     const history = buildHistoryIndex();
 
-    const rows = [];
+    const candidates = [];
     for (let i = 1; i < lines.length; i++) {
       const cells = splitLine(lines[i]);
       if (cells.length <= Math.max(dateIdx, labelIdx, amountIdx)) continue;
@@ -734,13 +855,15 @@ function BudgetTracker({ household, onLogout, onRename }) {
       // Sign convention in the app: positive = money spent, negative = money
       // received. The bank's sign is the opposite (negative = spent), so flip it.
       const label = cells[labelIdx] || "(sans libellé)";
-      const candidate = { date: cells[dateIdx] || "", label, amount: -amount };
-      const sig = signatureOf(candidate);
-      const allowed = existingCounts[sig] || 0;
-      const used = consumed[sig] || 0;
-      const isDup = used < allowed;
-      consumed[sig] = used + 1;
       const bankCat = bankCatIdx !== -1 ? (cells[bankCatIdx] || "").trim().toLowerCase() : "";
+      candidates.push({ date: cells[dateIdx] || "", label, amount: -amount, bankCat });
+    }
+    for (const c of candidates) c.duplicate = claimExact(signatureOf(c));
+    for (const c of candidates) if (!c.duplicate) c.duplicate = claimFuzzy(c);
+
+    const rows = [];
+    for (const candidate of candidates) {
+      const { label, bankCat, duplicate: isDup } = candidate;
       // Priority: explicit rule > matching recurring fee > history > bank's own category > type/keyword guess.
       const key = merchantKey(label);
       const fee = isDup ? null : matchRecurringFee(label, candidate.amount);
@@ -758,6 +881,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
         label,
         amount: candidate.amount,
         categoryId,
+        importSig: signatureOf(candidate), // original bank data, kept even if the row is edited later
         ...(fee && fee.categoryId === categoryId ? { feeId: fee.id } : {}),
         duplicate: isDup,
       });
@@ -772,7 +896,8 @@ function BudgetTracker({ household, onLogout, onRename }) {
     const targetLabel = months.find((m) => m.id === targetMonth)?.label || targetMonth;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const parsed = parseCsv(ev.target.result, targetMonth);
+      const content = ev.target.result;
+      const parsed = parseCsv(content, targetMonth);
       if (parsed === "invalid") {
         window.alert("Colonnes attendues introuvables (date, libellé/label, montant). Vérifiez le format du fichier exporté.");
         return;
@@ -785,10 +910,11 @@ function BudgetTracker({ household, onLogout, onRename }) {
       setTransactions((t) => ({ ...t, [targetMonth]: [...(t[targetMonth] || []), ...newRows] }));
       setImportSummary(
         `${newRows.length} transaction(s) importée(s) pour ${targetLabel}` +
-        (dupCount > 0 ? `, ${dupCount} doublon(s) ignoré(s)` : "") +
+        (dupCount > 0 ? `, ${dupCount} déjà importée(s) ignorée(s)` : "") +
         `. Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».`
       );
       setShowTransactions(true);
+      saveImportFile(file.name, content, targetMonth, newRows.length, dupCount);
     };
     reader.readAsText(file, "utf-8");
     e.target.value = "";
@@ -941,6 +1067,9 @@ function BudgetTracker({ household, onLogout, onRename }) {
         </div>
         <div className="head-actions">
           <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={handleCsvFile} style={{ display: "none" }} />
+          <button className="reset-btn" onClick={undo} disabled={undoCount === 0} style={{ opacity: undoCount === 0 ? 0.4 : 1, cursor: undoCount === 0 ? "default" : "pointer" }} title="Annuler la dernière modification (Ctrl+Z / ⌘Z)">
+            ↶ Annuler{undoCount > 0 ? ` (${undoCount})` : ""}
+          </button>
           <span className="save-pill">{saveState === "saving" ? "Enregistrement…" : saveState === "error" ? "Erreur d'enregistrement" : "Enregistré"}</span>
           <span className="invite-pill">Code d'invitation : <span className="invite-code">{household.invite_code}</span></span>
           <button className="logout-btn" onClick={onLogout}>Se déconnecter</button>
@@ -1199,6 +1328,31 @@ function BudgetTracker({ household, onLogout, onRename }) {
             )}
             <button className="add-line" onClick={() => addManualTransaction(selectedMonth)}>+ Ajouter une dépense</button>
           </React.Fragment>
+        )}
+      </div>
+
+      <div className="panel">
+        <div className="panel-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setShowImportFiles((v) => !v)}>
+          <span>Relevés CSV importés ({importFiles.length})</span>
+          <span style={{ fontSize: 12, color: "var(--gold)" }}>{showImportFiles ? "Masquer ▲" : "Voir ▼"}</span>
+        </div>
+        {showImportFiles && (
+          importFiles.length === 0 ? (
+            <div className="import-hint" style={{ padding: 16 }}>Aucun relevé importé pour l'instant. Chaque fichier importé est conservé ici et peut être re-téléchargé.</div>
+          ) : (
+            importFiles.map((f) => (
+              <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderBottom: "1px solid var(--rule)", fontSize: 12, flexWrap: "wrap" }}>
+                <span style={{ flex: "1 1 200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={f.file_name}>{f.file_name}</span>
+                <span style={{ color: "var(--ink-soft)" }}>
+                  {new Date(f.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+                  {" · "}{months.find((m) => m.id === f.month_id)?.label || "—"}
+                  {" · "}{f.imported_count} importée(s){f.skipped_count > 0 ? `, ${f.skipped_count} déjà présente(s)` : ""}
+                </span>
+                <button className="reset-btn" onClick={() => downloadImportFile(f)}>⭳ Télécharger</button>
+                <button className="icon-btn" title="Supprimer ce fichier de l'archive" onClick={() => deleteImportFile(f)}>✕</button>
+              </div>
+            ))
+          )
         )}
       </div>
 
