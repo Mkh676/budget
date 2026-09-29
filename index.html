@@ -152,6 +152,16 @@ function dateToDayNumber(date) {
   const t = Date.UTC(y, mo - 1, da);
   return isNaN(t) ? null : Math.round(t / 86400000);
 }
+// Where an imported row's category came from (shown as a tooltip on its category).
+const CATEGORY_SOURCE_LABELS = {
+  manual: "Choisie par vous",
+  rule: "Retenue d'après votre choix précédent pour ce marchand",
+  fee: "D'après une charge récurrente correspondante",
+  history: "D'après vos mois précédents pour ce marchand",
+  bank: "D'après la catégorie de la banque",
+  withdrawal: "Retrait d'espèces",
+  keyword: "Devinée d'après le libellé — à vérifier",
+};
 const LABEL_NOISE_WORDS = new Set([
   "cb", "ref", "fact", "facture", "echeance", "le", "la", "les", "du", "de", "des", "at", "sa", "sas", "sarl",
   "janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre",
@@ -676,26 +686,36 @@ function BudgetTracker({ household, onLogout, onRename }) {
   // (accents/punctuation stripped), so "free" doesn't match "freelance" and
   // "total" doesn't match "totalenergies". Order matters: first rule wins, so
   // more specific phrases (e.g. "amazon prime") come before generic ones ("amazon").
+  // Resolves a target category: by one of our known default ids first, else by
+  // the category's NAME (accents/case ignored), so renamed, deleted-and-recreated
+  // or user-added categories are still found.
+  const findCategoryId = (ids, names) => {
+    const byId = categories.find((c) => ids.includes(c.id));
+    if (byId) return byId.id;
+    const byName = categories.find((c) => (names || []).some((n) => normText(c.name).includes(normText(n))));
+    return byName ? byName.id : "";
+  };
+
   const guessCategoryId = (label, amount) => {
     const l = normText(label);
     const rules = [
-      { ids: ["electricite"], words: ["edf", "engie", "totalenergies electricite", "totalenergies elec", "ekwateur", "enercoop"] },
-      { ids: ["essence"], words: ["total", "totalenergies", "esso", "shell", "bp", "avia", "station", "station service", "carburant"] },
-      { ids: ["voiture_entretien"], words: ["car wash", "garage", "vidange", "pneu", "pneus", "norauto", "feu vert", "midas", "speedy"] },
-      { ids: ["internet"], words: ["free", "free mobile", "freebox", "orange", "sfr", "bouygues", "bouygues telecom", "sosh", "red by sfr"] },
-      { ids: ["netflix"], words: ["netflix", "prime video", "amazon prime", "spotify", "disney", "disney plus", "deezer", "canal"] },
-      { ids: ["resto"], words: ["restaurant", "resto", "brasserie", "uber eats", "deliveroo", "cafe", "mcdonald", "mcdonalds", "burger king", "kfc", "boulangerie"] },
-      { ids: ["weekends"], words: ["hotel", "booking com", "bkg", "airbnb", "camping", "sncf", "ouigo"] },
-      { ids: ["alimentation"], words: ["carrefour", "leclerc", "monoprix", "auchan", "lidl", "franprix", "intermarche", "supermarche", "super u", "hyper u", "casino supermarche", "geant casino", "casino shop", "petit casino", "picard", "aldi", "boucherie", "amazon"] },
-      { ids: ["assurance_habitation"], words: ["assurance habitation", "maif", "macif", "matmut"] },
-      { ids: ["voiture_assurance"], words: ["assurance auto", "assurance vehicule"] },
-      { ids: ["sante"], words: ["pharmacie", "pharma", "medecin", "docteur", "dentiste", "optique", "opticien", "audition", "laboratoire", "kine"] },
-      { ids: ["pets"], words: ["veto", "veterinaire", "clinique veterinaire", "maxizoo", "animalerie", "wanimo", "zooplus", "truffaut"] },
+      { ids: ["electricite"], names: ["electricite", "energie", "gaz"], words: ["edf", "engie", "totalenergies electricite", "totalenergies elec", "ekwateur", "enercoop"] },
+      { ids: ["essence"], names: ["essence", "carburant"], words: ["total", "totalenergies", "esso", "shell", "bp", "avia", "station", "station service", "carburant"] },
+      { ids: ["voiture_entretien"], names: ["entretien", "garage"], words: ["car wash", "garage", "vidange", "pneu", "pneus", "norauto", "feu vert", "midas", "speedy"] },
+      { ids: ["internet"], names: ["internet", "telephone", "mobile", "box"], words: ["free", "free mobile", "freebox", "orange", "sfr", "bouygues", "bouygues telecom", "sosh", "red by sfr"] },
+      { ids: ["netflix"], names: ["netflix", "abonnement", "streaming"], words: ["netflix", "prime video", "amazon prime", "spotify", "disney", "disney plus", "deezer", "canal"] },
+      { ids: ["resto"], names: ["resto", "restaurant", "sorties"], words: ["restaurant", "resto", "brasserie", "uber eats", "deliveroo", "cafe", "mcdonald", "mcdonalds", "burger king", "kfc", "boulangerie"] },
+      { ids: ["weekends"], names: ["weekend", "vacances", "voyage"], words: ["hotel", "booking com", "bkg", "airbnb", "camping", "sncf", "ouigo"] },
+      { ids: ["alimentation"], names: ["alimentation", "courses", "supermarche"], words: ["carrefour", "leclerc", "monoprix", "auchan", "lidl", "franprix", "intermarche", "supermarche", "super u", "hyper u", "casino supermarche", "geant casino", "casino shop", "petit casino", "picard", "aldi", "boucherie", "amazon"] },
+      { ids: ["assurance_habitation"], names: ["assurance habitation"], words: ["assurance habitation", "maif", "macif", "matmut"] },
+      { ids: ["voiture_assurance"], names: ["assurance voiture", "voiture assurance", "assurance auto"], words: ["assurance auto", "assurance vehicule"] },
+      { ids: ["sante"], names: ["sante", "medical", "pharmacie"], words: ["pharmacie", "pharma", "medecin", "docteur", "dentiste", "optique", "opticien", "audition", "laboratoire", "kine"] },
+      { ids: ["pets"], names: ["pets", "animaux", "chien", "chat", "veto"], words: ["veto", "veterinaire", "clinique veterinaire", "maxizoo", "animalerie", "wanimo", "zooplus", "truffaut"] },
     ];
     for (const rule of rules) {
       if (rule.words.some((w) => hasWord(l, w))) {
-        const match = categories.find((c) => rule.ids.includes(c.id));
-        if (match) return match.id;
+        const id = findCategoryId(rule.ids, rule.names);
+        if (id) return id;
       }
     }
 
@@ -770,20 +790,44 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
   // BoursoBank (and similar exports) tag each transaction with their OWN
   // category — far more reliable than guessing from the merchant name.
-  // Map their category labels to our category ids where there's a clean fit;
-  // anything not listed here falls back to guessCategoryId() on the label.
-  const BANK_CATEGORY_MAP = {
-    "alimentation": "alimentation",
-    "carburant": "essence",
-    "entretien - réparation": "voiture_entretien",
-    "hébergement (hôtels, camping…)": "weekends",
-    "loyers, charges": "loyer",
-    "restaurants, bars, discothèques…": "resto",
-    "optique, audition…": "sante",
-  };
+  // Each entry: bank category phrases (compared without accents/case, and
+  // matching when the bank's label CONTAINS the phrase) -> our category, by id
+  // or by name. Anything not listed falls back to guessCategoryId() on the label.
+  const BANK_CATEGORY_MAP = [
+    { bank: ["alimentation", "supermarche", "hypermarche"], ids: ["alimentation"], names: ["alimentation", "courses"] },
+    { bank: ["carburant", "essence"], ids: ["essence"], names: ["essence", "carburant"] },
+    { bank: ["entretien reparation", "entretien vehicule", "pieces auto"], ids: ["voiture_entretien"], names: ["entretien"] },
+    { bank: ["peage", "parking", "stationnement"], ids: ["voiture_entretien"], names: ["peage", "parking", "transport", "voiture"] },
+    { bank: ["transports", "transport en commun", "train", "taxi vtc"], ids: [], names: ["transport"] },
+    { bank: ["hebergement", "hotel", "voyage", "vacances"], ids: ["weekends"], names: ["weekend", "vacances", "voyage"] },
+    { bank: ["loyers charges", "loyer"], ids: ["loyer"], names: ["loyer"] },
+    { bank: ["restaurants bars", "restauration rapide", "restaurant"], ids: ["resto"], names: ["resto", "restaurant"] },
+    { bank: ["optique audition", "pharmacie", "medecin", "sante", "dentiste", "hopital", "mutuelle"], ids: ["sante"], names: ["sante"] },
+    { bank: ["electricite gaz", "electricite", "energie", "gaz"], ids: ["electricite"], names: ["electricite", "energie"] },
+    { bank: ["eau"], ids: ["eau"], names: ["eau"] },
+    { bank: ["telephonie", "internet", "telephone"], ids: ["internet"], names: ["internet", "telephone"] },
+    { bank: ["abonnement", "multimedia", "streaming"], ids: ["netflix"], names: ["netflix", "abonnement"] },
+    { bank: ["assurance habitation"], ids: ["assurance_habitation"], names: ["assurance habitation"] },
+    { bank: ["assurance vehicule", "assurance auto"], ids: ["voiture_assurance"], names: ["voiture assurance", "assurance voiture"] },
+    { bank: ["animaux", "veterinaire"], ids: ["pets"], names: ["pets", "animaux"] },
+    { bank: ["cadeaux", "dons"], ids: ["cadeaux"], names: ["cadeau"] },
+    { bank: ["bricolage", "jardinage", "equipement maison", "ameublement", "travaux"], ids: ["travaux"], names: ["travaux", "maison"] },
+    { bank: ["impots", "taxe fonciere"], ids: ["taxe_fonciere"], names: ["taxe", "impot"] },
+    { bank: ["credit immobilier", "pret immobilier", "emprunt"], ids: ["emprunt"], names: ["emprunt", "credit"] },
+    { bank: ["salaires", "salaire", "revenus du travail"], ids: ["salaire"], names: ["salaire"] },
+    { bank: ["epargne", "placement", "livret"], ids: ["epargne"], names: ["epargne"] },
+    { bank: ["retrait", "especes"], ids: [], names: ["retrait", "espece", "liquide", "cash"] },
+  ];
   const bankCategoryId = (bankCat) => {
-    const id = BANK_CATEGORY_MAP[bankCat];
-    return categoryExists(id) ? id : "";
+    const b = normText(bankCat);
+    if (!b) return "";
+    for (const entry of BANK_CATEGORY_MAP) {
+      if (entry.bank.some((phrase) => hasWord(b, phrase))) {
+        const id = findCategoryId(entry.ids, entry.names);
+        if (id) return id;
+      }
+    }
+    return "";
   };
 
   // ---------- Duplicate detection (same date + same amount + same label) ----------
@@ -811,7 +855,8 @@ function BudgetTracker({ household, onLogout, onRename }) {
     // findIndex takes the FIRST match, which is correctly the transaction amount.
     const amountIdx = header.findIndex((h) => h.includes("amount") || h.includes("montant") || h.includes("solde"));
     // Optional: the bank's own category column, if present (used for auto-categorization below).
-    const bankCatIdx = header.findIndex((h) => h === "catégorie" || h === "categorie");
+    const bankCatIdx = header.findIndex((h) => ["catégorie", "categorie", "category"].includes(h));
+    const bankParentIdx = header.findIndex((h) => ["catégorie parent", "categorie parent", "categoryparent"].includes(h));
     if (dateIdx === -1 || labelIdx === -1 || amountIdx === -1) return "invalid";
 
     // Re-importing is always safe: a statement exported on the 10th and another
@@ -855,8 +900,9 @@ function BudgetTracker({ household, onLogout, onRename }) {
       // Sign convention in the app: positive = money spent, negative = money
       // received. The bank's sign is the opposite (negative = spent), so flip it.
       const label = cells[labelIdx] || "(sans libellé)";
-      const bankCat = bankCatIdx !== -1 ? (cells[bankCatIdx] || "").trim().toLowerCase() : "";
-      candidates.push({ date: cells[dateIdx] || "", label, amount: -amount, bankCat });
+      const bankCat = bankCatIdx !== -1 ? (cells[bankCatIdx] || "").trim() : "";
+      const bankParent = bankParentIdx !== -1 ? (cells[bankParentIdx] || "").trim() : "";
+      candidates.push({ date: cells[dateIdx] || "", label, amount: -amount, bankCat, bankParent });
     }
     for (const c of candidates) c.duplicate = claimExact(signatureOf(c));
     for (const c of candidates) if (!c.duplicate) c.duplicate = claimFuzzy(c);
@@ -867,20 +913,28 @@ function BudgetTracker({ household, onLogout, onRename }) {
       // Priority: explicit rule > matching recurring fee > history > bank's own category > type/keyword guess.
       const key = merchantKey(label);
       const fee = isDup ? null : matchRecurringFee(label, candidate.amount);
-      const categoryId = isDup ? "" : (
-        (categoryExists(categoryRules[key]) && categoryRules[key]) ||
-        (fee && fee.categoryId) ||
-        history[key] ||
-        bankCategoryId(bankCat) ||
-        (operationType(label) === "withdrawal" && withdrawalCategoryId()) ||
-        guessCategoryId(label, candidate.amount)
-      );
+      // Each source is tried in order; the first that gives a category wins and
+      // is recorded, so uncertain guesses can be flagged for review.
+      const sources = isDup ? [] : [
+        ["rule", () => categoryExists(categoryRules[key]) && categoryRules[key]],
+        ["fee", () => fee && fee.categoryId],
+        ["history", () => history[key]],
+        ["bank", () => bankCategoryId(bankCat) || bankCategoryId(candidate.bankParent)],
+        ["withdrawal", () => operationType(label) === "withdrawal" && withdrawalCategoryId()],
+        ["keyword", () => guessCategoryId(label, candidate.amount)],
+      ];
+      let categoryId = "", categorySource = "";
+      for (const [src, get] of sources) {
+        const id = get();
+        if (id) { categoryId = id; categorySource = src; break; }
+      }
       rows.push({
         id: uid("tx"),
         date: candidate.date,
         label,
         amount: candidate.amount,
         categoryId,
+        ...(categorySource ? { categorySource } : {}),
         importSig: signatureOf(candidate), // original bank data, kept even if the row is edited later
         ...(fee && fee.categoryId === categoryId ? { feeId: fee.id } : {}),
         duplicate: isDup,
@@ -911,6 +965,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
       setImportSummary(
         `${newRows.length} transaction(s) importée(s) pour ${targetLabel}` +
         (dupCount > 0 ? `, ${dupCount} déjà importée(s) ignorée(s)` : "") +
+        (newRows.some((r) => r.categorySource === "keyword") ? `, ${newRows.filter((r) => r.categorySource === "keyword").length} catégorie(s) devinée(s) marquée(s) « ? » à vérifier` : "") +
         `. Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».`
       );
       setShowTransactions(true);
@@ -951,8 +1006,8 @@ function BudgetTracker({ household, onLogout, onRename }) {
     setTransactions((t) => ({
       ...t,
       [m]: (t[m] || []).map((x) => {
-        if (x.id === txId) return { ...x, categoryId: catId };
-        if (catId && key && !x.categoryId && !x.recurring && merchantKey(x.label) === key) return { ...x, categoryId: catId };
+        if (x.id === txId) return { ...x, categoryId: catId, categorySource: "manual" };
+        if (catId && key && !x.categoryId && !x.recurring && merchantKey(x.label) === key) return { ...x, categoryId: catId, categorySource: "rule" };
         return x;
       }),
     }));
@@ -1251,11 +1306,21 @@ function BudgetTracker({ household, onLogout, onRename }) {
                         onChange={(e) => updateTransactionField(selectedMonth, tx.id, "amount", parseFloat(e.target.value) || 0)}
                       />
                       <div style={{ display: "flex", gap: 6 }}>
-                        <select value={tx.categoryId} onChange={(e) => updateTransactionCategory(selectedMonth, tx.id, e.target.value)}>
+                        <select value={tx.categoryId} title={tx.categoryId && CATEGORY_SOURCE_LABELS[tx.categorySource] || ""} onChange={(e) => updateTransactionCategory(selectedMonth, tx.id, e.target.value)}>
                           <option value="">— Non catégorisé —</option>
                           {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
                           <option value="__new__">+ Nouvelle catégorie…</option>
                         </select>
+                        {tx.categoryId && tx.categorySource === "keyword" && (
+                          <button
+                            className="icon-btn"
+                            style={{ color: "var(--gold)", fontWeight: 700, border: "1px solid var(--gold)", borderRadius: 4, padding: "0 6px" }}
+                            title="Catégorie devinée d'après le libellé — à vérifier. Cliquer pour la confirmer (elle sera retenue pour ce marchand)."
+                            onClick={() => updateTransactionCategory(selectedMonth, tx.id, tx.categoryId)}
+                          >
+                            ?
+                          </button>
+                        )}
                         <button
                           className="icon-btn"
                           style={{
