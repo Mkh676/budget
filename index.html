@@ -1138,7 +1138,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
       }
       for (const k of Object.keys(next)) delete next[k]._pool;
       setSavingsAccounts(next);
-      setImportSummary(`Épargne : ${added} opération(s) importée(s)` + (skipped ? `, ${skipped} déjà présente(s) ignorée(s)` : "") + ". Voir « Comptes d'épargne ».");
+      setImportSummary(`Épargne : ${added} opération(s) importée(s)` + (skipped ? `, ${skipped} déjà présente(s) ignorée(s)` : "") + ".");
       setView("epargne");
       saveImportFile(file.name, content, null, added, skipped);
     };
