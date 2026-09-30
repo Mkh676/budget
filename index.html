@@ -206,6 +206,76 @@ function parseAmountQuery(q) {
   return null;
 }
 
+// ---------- Savings statement PDF (LCL format) ----------
+// Input: the PDF's text, page by page, as [{ x, y, s }] items (from pdf.js).
+// Rebuilds each operation (date, label, signed amount) from the "ECRITURES DE
+// LA PERIODE" table: an amount under the DEBIT column is money out, under
+// CREDIT money in. Starts from "ANCIEN SOLDE" and computes the balance after
+// every operation, then checks it against the bank's own "SOLDE ..." lines.
+// Returns null when the file doesn't look like such a statement.
+function parseLclStatement(pages) {
+  const all = pages.flat().map((i) => i.s).join(" ");
+  const period = all.match(/du (\d{2})\.(\d{2})\.(\d{4}) au (\d{2})\.(\d{2})\.(\d{4})/);
+  if (!period) return null;
+  const startMonth = +period[2], startYear = +period[3], endYear = +period[6];
+  const numMatch = all.match(/Compte\s*:\s*(\d+\s*[A-Z]?)/) || all.match(/N° de compte\s+\S+\s+(\d+\s*[A-Z]?)/);
+  const accountNumber = numMatch ? numMatch[1].replace(/\s+/g, " ").trim() : "";
+  const toAmount = (str) => parseFloat(str.replace(/[\s  ]/g, "").replace(",", "."));
+  const isAmount = (str) => /^\d{1,3}(?:[\s  ]\d{3})*,\d{2}$/.test(str.trim());
+  const yearFor = (mm) => (startYear === endYear || mm >= startMonth ? startYear : endYear);
+  let title = "", creditX = null, valeurX = null, opening = null;
+  const checks = []; // bank balances found in the statement: { date?, amount, label }
+  const ops = [];
+  let last = null;
+  let dateX = null;
+  pages.forEach((items, pageIdx) => {
+    last = null; // notes never continue across a page break
+    const byY = {};
+    for (const it of items) { if (!it.s.trim()) continue; const y = Math.round(it.y); (byY[y] = byY[y] || []).push(it); }
+    const lines = Object.keys(byY).map(Number).sort((a, b) => b - a).map((y) => byY[y].sort((a, b) => a.x - b.x));
+    if (pageIdx === 0 && lines.length) title = lines[0].map((i) => i.s).join(" ").trim();
+    for (const line of lines) {
+      const text = line.map((i) => i.s).join(" ");
+      const credit = line.find((i) => /^CREDIT$/i.test(i.s.trim()));
+      if (credit && line.some((i) => /^DEBIT$/i.test(i.s.trim()))) {
+        creditX = credit.x;
+        const v = line.find((i) => /^VALEUR$/i.test(i.s.trim())); if (v) valeurX = v.x;
+        continue;
+      }
+      if (creditX === null) continue; // before the operations table
+      const amountItem = [...line].reverse().find((i) => isAmount(i.s));
+      const signed = amountItem ? (amountItem.x >= creditX - 12 ? 1 : -1) * toAmount(amountItem.s) : null;
+      const dateItem = line[0] && /^\d{2}\.\d{2}$/.test(line[0].s.trim()) ? line[0] : null;
+      if (/ANCIEN SOLDE/i.test(text) && signed !== null) { opening = signed; last = null; continue; }
+      if (/SOLDE/i.test(text) && signed !== null) { checks.push({ label: text.replace(amountItem.s, "").trim(), amount: signed, afterOps: ops.length }); last = null; continue; }
+      if (/TOTAUX/i.test(text)) { last = null; continue; }
+      if (dateItem && amountItem) {
+        const [dd, mm] = dateItem.s.trim().split(".").map(Number);
+        const date = `${yearFor(mm)}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+        const label = line.filter((i) => i !== dateItem && i !== amountItem && (valeurX === null || i.x < valeurX - 5)).map((i) => i.s).join(" ").replace(/\s+/g, " ").trim();
+        last = { date, label, amount: signed };
+        dateX = dateItem.x;
+        ops.push(last);
+      } else if (last && !amountItem && !dateItem && valeurX !== null && dateX !== null &&
+                 line[0].x > dateX + 20 && line.every((i) => i.x < valeurX)) {
+        // Continuation line under an operation: keep a real note, skip bank references.
+        const note = text.replace(/^LIBELLE\s*:\s*/i, "").trim();
+        if (note && !/^REF\.?CLIENT/i.test(note)) last.label += " — " + note;
+      }
+    }
+  });
+  if (opening === null || ops.length === 0) return null;
+  let balance = opening;
+  const entries = ops.map((o) => { balance = Math.round((balance + o.amount) * 100) / 100; return { ...o, balance }; });
+  const closing = checks.length ? checks[checks.length - 1].amount : null;
+  const mismatches = checks.filter((c) => {
+    const at = c.afterOps > 0 ? entries[c.afterOps - 1].balance : opening;
+    return Math.abs(at - c.amount) > 0.005;
+  });
+  const periodEnd = `${period[6]}-${period[5]}-${period[4]}`;
+  return { title, accountNumber, opening, entries, closing, periodEnd, verified: checks.length > 0 && mismatches.length === 0, mismatches };
+}
+
 // Where an imported row's category came from (shown as a tooltip on its category).
 const CATEGORY_SOURCE_LABELS = {
   manual: "Choisie par vous",
@@ -803,7 +873,14 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const downloadImportFile = async (f) => {
     const { data, error } = await sb.from("household_imports").select("content").eq("id", f.id).maybeSingle();
     if (error || !data) { window.alert("Téléchargement impossible."); return; }
-    const blob = new Blob([data.content], { type: "text/csv;charset=utf-8" });
+    // PDFs are archived as a data URL; CSVs as plain text.
+    let blob;
+    if (data.content.startsWith("data:application/pdf;base64,")) {
+      const bin = atob(data.content.slice(data.content.indexOf(",") + 1));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      blob = new Blob([bytes], { type: "application/pdf" });
+    } else blob = new Blob([data.content], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = f.file_name;
@@ -1114,38 +1191,112 @@ function BudgetTracker({ household, onLogout, onRename }) {
     }
     return rows;
   };
+  // pdf.js is only loaded (from cdnjs) the first time a PDF statement is imported.
+  const loadPdfJs = () => new Promise((resolve, reject) => {
+    if (window.pdfjsLib) return resolve(window.pdfjsLib);
+    const base = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+    const tag = document.createElement("script");
+    tag.src = base + "pdf.min.js";
+    tag.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = base + "pdf.worker.min.js"; resolve(window.pdfjsLib); };
+    tag.onerror = () => reject(new Error("pdf.js"));
+    document.head.appendChild(tag);
+  });
+  const readPdfPages = async (buffer) => {
+    const pdfjs = await loadPdfJs();
+    // pdf.js transfers (empties) the buffer it's given, so it gets a copy:
+    // the original is still needed to archive the file.
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer.slice(0)) }).promise;
+    const pages = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const tc = await (await doc.getPage(i)).getTextContent();
+      pages.push(tc.items.map((it) => ({ x: it.transform[4], y: it.transform[5], s: it.str })));
+    }
+    return pages;
+  };
+  const titleCase = (t) => t.toLowerCase().replace(/(^|[\s.'-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+
+  // Adds imported operations to their savings account. Lines already saved
+  // (same date, amount and label) are skipped, so re-importing is safe. A
+  // statement for an account not seen before can be attached to the manual
+  // account currently shown (it then becomes an imported account).
+  const mergeSavingsRows = (rows, fileName, archiveContent, note) => {
+    const next = { ...savingsAccounts };
+    const findId = (bankKey) => Object.keys(next).find((id) => id === bankKey || next[id].bankKey === bankKey);
+    let targetFirst = null, added = 0, skipped = 0;
+    for (const r of rows) {
+      let id = findId(r.account);
+      if (!id) {
+        // The account currently shown on the page (the first one if none was picked).
+        const shownId = selectedAccount && next[selectedAccount] ? selectedAccount : Object.keys(savingsAccounts)[0];
+        const cur = shownId && next[shownId];
+        if (cur && cur.manual && window.confirm(
+          `Ajouter ce relevé (« ${r.accountLabel} ») au compte « ${cur.label} » ?\n\n` +
+          `OK : le compte « ${cur.label} » utilisera désormais les opérations du relevé.\n` +
+          `Annuler : créer un nouveau compte « ${r.accountLabel} ».`)) {
+          id = shownId;
+          next[id] = { ...cur, manual: false, bankKey: r.account, entries: [] };
+        } else {
+          id = r.account;
+          next[id] = { label: r.accountLabel, bankKey: r.account, entries: [] };
+        }
+      }
+      if (!targetFirst) targetFirst = id;
+      const acc = next[id]._copied ? next[id] : (next[id] = { ...next[id], entries: [...(next[id].entries || [])], _copied: true });
+      acc._pool = acc._pool || acc.entries.map((x) => x.importSig);
+      const hit = acc._pool.indexOf(r.importSig);
+      if (hit !== -1) { acc._pool.splice(hit, 1); skipped++; continue; }
+      acc.entries.push({ id: uid("sav"), date: r.date, label: r.label, amount: r.amount, balance: r.balance, importSig: r.importSig });
+      added++;
+    }
+    for (const k of Object.keys(next)) { delete next[k]._pool; delete next[k]._copied; }
+    setSavingsAccounts(next);
+    setImportSummary(`Épargne : ${added} opération(s) importée(s)` + (skipped ? `, ${skipped} déjà présente(s) ignorée(s)` : "") + "." + (note ? " " + note : ""));
+    setView("epargne");
+    if (targetFirst) setSelectedAccount(targetFirst);
+    saveImportFile(fileName, archiveContent, null, added, skipped);
+  };
+
   const handleSavingsFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const content = ev.target.result;
-      const rows = parseSavingsCsv(content);
-      if (rows === "invalid" || rows.length === 0) {
-        window.alert("Colonnes attendues introuvables (date, libellé, montant). Vérifiez le fichier exporté de votre compte d'épargne.");
-        return;
-      }
-      // Re-importing is safe: each line already saved (same date, amount and label) is skipped once.
-      let added = 0, skipped = 0;
-      const next = { ...savingsAccounts };
-      for (const r of rows) {
-        const acc = next[r.account] ? { ...next[r.account], entries: [...next[r.account].entries] } : { label: r.accountLabel, entries: [] };
-        next[r.account] = acc;
-        acc._pool = acc._pool || acc.entries.map((x) => x.importSig);
-        const hit = acc._pool.indexOf(r.importSig);
-        if (hit !== -1) { acc._pool.splice(hit, 1); skipped++; continue; }
-        acc.entries.push({ id: uid("sav"), date: r.date, label: r.label, amount: r.amount, balance: r.balance, importSig: r.importSig });
-        added++;
-      }
-      for (const k of Object.keys(next)) delete next[k]._pool;
-      setSavingsAccounts(next);
-      setImportSummary(`Épargne : ${added} opération(s) importée(s)` + (skipped ? `, ${skipped} déjà présente(s) ignorée(s)` : "") + ".");
-      setView("epargne");
-      setSelectedAccount(rows[0].account);
-      saveImportFile(file.name, content, null, added, skipped);
-    };
-    reader.readAsText(file, "utf-8");
     e.target.value = "";
+    const isPdf = /\.pdf$/i.test(file.name) || file.type === "application/pdf";
+    const reader = new FileReader();
+    if (isPdf) {
+      reader.onload = async (ev) => {
+        const buffer = ev.target.result;
+        let st;
+        try { st = parseLclStatement(await readPdfPages(buffer)); }
+        catch (err) { window.alert("Impossible de lire ce PDF (connexion nécessaire pour charger le lecteur PDF). Réessayez."); return; }
+        if (!st) {
+          window.alert("Ce PDF n'a pas été reconnu comme un relevé de compte d'épargne (format LCL attendu : « ECRITURES DE LA PERIODE », colonnes DEBIT / CREDIT). Vous pouvez aussi importer un export CSV.");
+          return;
+        }
+        const accountLabel = titleCase(st.title || "Compte d'épargne") + (st.accountNumber ? " · " + st.accountNumber : "");
+        const bankKey = "pdf:" + (st.accountNumber || st.title).replace(/\s+/g, "");
+        const rows = st.entries.map((o) => ({ account: bankKey, accountLabel, date: o.date, label: o.label, amount: o.amount, balance: o.balance,
+          importSig: o.date + "|" + o.amount.toFixed(2) + "|" + o.label.trim().toLowerCase() }));
+        const note = st.verified
+          ? `Solde vérifié avec le relevé : ${fmt(st.closing)} au ${st.periodEnd.split("-").reverse().join("/")}.`
+          : `⚠ Le solde recalculé ne correspond pas exactement au relevé (${st.mismatches.map((m) => m.label + " " + fmt(m.amount)).join(", ")}) : vérifiez ce compte.`;
+        // Archive the PDF itself (as a data URL) so it can be downloaded again.
+        const bytes = new Uint8Array(buffer); let bin = "";
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        mergeSavingsRows(rows, file.name, "data:application/pdf;base64," + btoa(bin), note);
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.onload = (ev) => {
+        const content = ev.target.result;
+        const rows = parseSavingsCsv(content);
+        if (rows === "invalid" || rows.length === 0) {
+          window.alert("Colonnes attendues introuvables (date, libellé, montant). Vérifiez le fichier exporté de votre compte d'épargne.");
+          return;
+        }
+        mergeSavingsRows(rows, file.name, content, "");
+      };
+      reader.readAsText(file, "utf-8");
+    }
   };
   const removeSavingsAccount = (key) => {
     const acc = savingsAccounts[key];
@@ -1521,7 +1672,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
       )}
 
       {view === "epargne" && (<React.Fragment>
-        <input ref={savingsInputRef} type="file" accept=".csv,text/csv" onChange={handleSavingsFile} style={{ display: "none" }} />
+        <input ref={savingsInputRef} type="file" accept=".csv,.pdf,text/csv,application/pdf" onChange={handleSavingsFile} style={{ display: "none" }} />
         <div className="month-bar">
           {savingsList.length > 0 && (<React.Fragment>
             <button className="month-nav" title="Compte précédent" disabled={accIdx <= 0} onClick={() => setSelectedAccount(savingsList[accIdx - 1].key)}>‹</button>
@@ -1533,7 +1684,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
           <button className="month-action" onClick={addSavingsAccount}>+ Ajouter un compte</button>
           {curAccount && <button className="month-action" onClick={() => renameSavingsAccount(curAccount.key)}>✎ Renommer</button>}
           {curAccount && <button className="month-action danger" onClick={() => removeSavingsAccount(curAccount.key)}>✕ Supprimer</button>}
-          <button className="month-action" style={{ marginLeft: "auto" }} onClick={() => savingsInputRef.current && savingsInputRef.current.click()} title="Importer l'export CSV d'un compte d'épargne : le compte est créé et son solde lu automatiquement">↑ Importer un relevé (CSV)</button>
+          <button className="month-action" style={{ marginLeft: "auto" }} onClick={() => savingsInputRef.current && savingsInputRef.current.click()} title="Importer le relevé PDF (LCL) ou l'export CSV d'un compte d'épargne : les opérations et le solde sont lus automatiquement">↑ Importer un relevé (PDF ou CSV)</button>
         </div>
 
         {savingsList.length > 1 && (
