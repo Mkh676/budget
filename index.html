@@ -78,6 +78,19 @@
   .import-preview { max-height: 320px; overflow-y: auto; }
   .import-row { display: grid; grid-template-columns: 90px 1fr 90px 190px; gap: 10px; align-items: center; padding: 6px 16px; border-bottom: 1px solid var(--rule); font-size: 12px; }
   .import-row select { font-family: var(--font-mono); font-size: 12px; padding: 4px; border: 1px solid var(--rule); border-radius: 3px; background: #fff; }
+  /* Transaction rows: columns shrink instead of overflowing; the category menu takes the remaining space. */
+  .tx-row { grid-template-columns: 92px minmax(0, 1fr) 84px minmax(170px, 270px); grid-template-areas: "date label amount actions"; }
+  .tx-row > * { min-width: 0; }
+  .tx-date { grid-area: date; } .tx-label { grid-area: label; } .tx-amount { grid-area: amount; } .tx-actions { grid-area: actions; }
+  .tx-row input { width: 100%; box-sizing: border-box; }
+  .tx-actions { display: flex; gap: 6px; align-items: center; }
+  .tx-actions select { flex: 1 1 auto; min-width: 0; width: 100%; }
+  .tx-actions .icon-btn { flex: 0 0 auto; }
+  /* Phones: date + amount on the first line, label on the second, category + buttons on the third. */
+  @media (max-width: 640px) {
+    .tx-row { grid-template-columns: minmax(0, 1fr) 96px; grid-template-areas: "date amount" "label label" "actions actions"; gap: 6px; padding: 8px 12px; }
+    .tx-row input, .tx-actions select { font-size: 14px !important; padding: 6px !important; }
+  }
   .import-actions { display: flex; gap: 8px; padding: 12px 16px; }
   .import-actions button { font-family: var(--font-mono); font-size: 12px; padding: 8px 14px; border-radius: 4px; cursor: pointer; }
   .import-confirm { background: var(--ink); color: var(--paper); border: none; }
@@ -1369,9 +1382,10 @@ function BudgetTracker({ household, onLogout, onRename }) {
                 const categorized = all.filter((tx) => !tx.recurring && tx.categoryId);
                 const renderRow = (tx) => (
                   <React.Fragment key={tx.id}>
-                    <div className="import-row">
+                    <div className="import-row tx-row">
                       <input
                         type="text"
+                        className="tx-date"
                         style={{ fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4, width: "100%" }}
                         value={tx.date}
                         placeholder="date"
@@ -1379,6 +1393,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
                       />
                       <input
                         type="text"
+                        className="tx-label"
                         style={{ fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4, width: "100%" }}
                         value={tx.label}
                         placeholder="libellé"
@@ -1386,12 +1401,13 @@ function BudgetTracker({ household, onLogout, onRename }) {
                       />
                       <input
                         type="number"
+                        className="tx-amount"
                         style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4, color: tx.amount < 0 ? "var(--green)" : "var(--ink)" }}
                         value={tx.amount}
                         title={tx.amount < 0 ? "Argent reçu (réduit le total dépensé)" : "Dépense"}
                         onChange={(e) => updateTransactionField(selectedMonth, tx.id, "amount", parseFloat(e.target.value) || 0)}
                       />
-                      <div style={{ display: "flex", gap: 6 }}>
+                      <div className="tx-actions">
                         <select value={tx.categoryId} title={tx.categoryId && CATEGORY_SOURCE_LABELS[tx.categorySource] || ""} onChange={(e) => updateTransactionCategory(selectedMonth, tx.id, e.target.value)}>
                           <option value="">— Non catégorisé —</option>
                           {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
