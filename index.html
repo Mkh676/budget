@@ -567,7 +567,13 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const monthIncome = (m) => (income[m] || []).reduce((s, l) => s + (Number(l.amount) || 0), 0) + salaryFromTransactions(m);
   const monthSavings = (m) => (Number(savings[m]) || 0) + epargneFromTransactions(m);
   const monthBudgetTotal = expenseCategories.reduce((s, c) => s + (Number(c.budget) || 0), 0);
-  const monthActualTotal = (m) => expenseCategories.reduce((s, c) => s + categoryTotal(m, c.id), 0);
+  // Spending not (yet) in any category — no category, or one that was deleted.
+  // Only money going out counts: an uncategorized incoming amount could be a
+  // salary as well as a refund, so it isn't subtracted from spending.
+  const uncategorizedSpent = (m) => monthTransactions(m)
+    .filter((t) => !categories.some((c) => c.id === t.categoryId) && Number(t.amount) > 0)
+    .reduce((s, t) => s + Number(t.amount), 0);
+  const monthActualTotal = (m) => expenseCategories.reduce((s, c) => s + categoryTotal(m, c.id), 0) + uncategorizedSpent(m);
   const monthRestant = (m) => monthIncome(m) - monthActualTotal(m) - monthSavings(m);
 
 
@@ -1522,7 +1528,19 @@ function BudgetTracker({ household, onLogout, onRename }) {
               );
             })}
           </tbody>
-          <tfoot><tr><td>Total</td><td className="num">{fmt(monthBudgetTotal)}</td><td className="num">{fmt(curActualTotal)}</td><td className="num">{fmt(monthBudgetTotal - curActualTotal)}</td><td></td></tr></tfoot>
+          <tfoot>
+            {uncategorizedSpent(selectedMonth) > 0 && (
+              <tr>
+                <td></td>
+                <td style={{ color: "var(--red)", fontStyle: "italic" }} title="Dépenses sans catégorie — à trier dans « Transactions ». Elles comptent dans le total réel.">Non catégorisé (à trier)</td>
+                <td className="num">—</td>
+                <td className="num" style={{ color: "var(--red)" }}>{fmt(uncategorizedSpent(selectedMonth))}</td>
+                <td></td>
+                <td></td>
+              </tr>
+            )}
+            <tr><td></td><td>Total</td><td className="num">{fmt(monthBudgetTotal)}</td><td className="num">{fmt(curActualTotal)}</td><td className={"num " + (monthBudgetTotal - curActualTotal >= 0 ? "diff-pos" : "diff-neg")}>{fmt(monthBudgetTotal - curActualTotal)}</td><td></td></tr>
+          </tfoot>
         </table>
         <button className="add-line" onClick={addCategory}>+ Ajouter une catégorie</button>
       </div>
