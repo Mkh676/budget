@@ -10,13 +10,17 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,500&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600;700&display=swap');
   html, body { margin: 0; padding: 0; }
   body {
-    --paper: #F3F5F0; --paper-alt: #E7EBE0; --ink: #232B3A; --ink-soft: #5C645B;
-    --rule: #C4CDBC; --green: #3F6B4A; --red: #9B3D3D; --gold: #7C9473;
+    /* Light palette: warm grey ground, white cards, soft sand for summaries,
+       steel blue for charts, saffron for main actions, red only for "over budget". */
+    --ground: #F3F2EE; --paper: #FFFFFF; --paper-alt: #F7F5F0; --sand: #F5E9D4; --sand-line: #E6D3B0;
+    --ink: #1B1E21; --ink-soft: #5E6166; --rule: #E3E1DA; --green: #2E6A48; --red: #A93E2B;
+    --gold: #4F7394; --blue: #7FA2C0; --blue-soft: #DCE7F1; --saffron: #E4A72C; --amber: #8A5200; --track: #ECEAE4;
     --font-display: 'Fraunces', Georgia, serif; --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
-    background: var(--paper); color: var(--ink); font-family: var(--font-mono);
+    --font-body: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    background: var(--ground); color: var(--ink); font-family: var(--font-body);
   }
   * { box-sizing: border-box; }
   .center-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -123,6 +127,123 @@
   .charts { max-width: 900px; margin: 0 auto; display: grid; gap: 24px; }
   .chart-box { border: 1px solid var(--rule); background: var(--paper-alt); padding: 14px; }
   .chart-title { font-family: var(--font-display); font-size: 15px; margin: 0 0 10px; }
+
+  /* ===== New look (overrides the rules above) ===== */
+  .ledger { padding: 0 16px 90px; }
+  .panel, .table-wrap, .charts, .month-bar, .home-grid, .hero, .page-w { max-width: 1080px; }
+  button, input, select { font-family: var(--font-body); }
+  .panel { border: none; border-radius: 18px; background: var(--paper); box-shadow: 0 1px 2px rgba(27,30,33,0.05); overflow: hidden; margin-bottom: 22px; }
+  .panel-title { font-size: 21px; background: transparent; border-bottom: 1px solid var(--rule); padding: 16px 22px; }
+  .row { padding: 10px 22px; border-bottom-color: var(--rule); }
+  .row input[type="text"], td input[type="text"] { font-family: var(--font-body); font-size: 14px; }
+  .row input[type="number"], td input[type="number"] { border-radius: 8px; border-color: var(--rule); }
+  .row input:focus, input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .totals-row { border-top: 1px solid var(--ink); padding: 12px 22px; font-size: 14px; }
+  .add-line { color: var(--gold); font-weight: 600; font-size: 13px; padding: 10px 22px; }
+  .btn-link { color: var(--gold); font-family: var(--font-body); }
+  .import-hint { font-family: var(--font-body); }
+  .import-summary { font-family: var(--font-body); font-size: 13px; }
+  .import-row { font-size: 13px; padding: 8px 22px; border-bottom-color: var(--rule); }
+  .import-row select, .tx-actions select { border-radius: 8px; border-color: var(--rule); font-family: var(--font-body); }
+  .table-wrap { border: none; border-radius: 14px; background: var(--paper); margin: 0 0 12px; }
+  table { font-family: var(--font-body); font-size: 14px; }
+  td.num, th.num { font-family: var(--font-mono); }
+  thead th { background: transparent; border-bottom: 1px solid var(--rule); font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-soft); }
+  tbody td { border-bottom-color: var(--rule); }
+  tbody tr:hover { background: var(--paper-alt); }
+  tfoot td { border-top: 1px solid var(--ink); }
+  .chart-box { border: none; border-radius: 18px; background: var(--paper); padding: 20px 24px; box-shadow: 0 1px 2px rgba(27,30,33,0.05); }
+  .chart-title { font-size: 21px; font-weight: 600; margin-bottom: 14px; }
+
+  /* Top bar */
+  .appbar { position: sticky; top: 0; z-index: 20; margin: 0 -16px 28px; background: rgba(255,255,255,0.94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--rule); }
+  .appbar-inner { max-width: 1080px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .brand { font-family: var(--font-display); font-size: 24px; font-weight: 800; letter-spacing: -0.01em; margin: 0; cursor: pointer; background: none; border: none; color: var(--ink); padding: 0; }
+  .brand-sub { font-size: 12px; color: var(--ink-soft); }
+  .section-nav { max-width: none; margin: 0; display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--ground); flex-wrap: nowrap; }
+  .section-nav button { font-family: var(--font-body); font-size: 14px; font-weight: 600; padding: 9px 18px; border: none; border-radius: 999px; background: transparent; color: var(--ink-soft); display: flex; align-items: center; gap: 6px; }
+  .section-nav button.active { background: var(--sand); color: var(--ink); }
+  .section-nav svg { display: none; }
+  .appbar-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--ink-soft); }
+  .save-pill { font-size: 12px; border: none; background: none; padding: 0; color: var(--ink-soft); }
+  .reset-btn, .logout-btn { font-family: var(--font-body); font-size: 12px; font-weight: 600; border-radius: 8px; padding: 6px 12px; border-color: var(--rule); background: var(--paper); }
+  .invite-code { background: var(--ground); border: none; border-radius: 6px; padding: 2px 6px; font-family: var(--font-mono); }
+  .title-edit-input { font-size: 22px; }
+
+  /* Buttons */
+  .month-action { font-family: var(--font-body); font-size: 13px; font-weight: 600; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); }
+  .month-action.primary { background: var(--saffron); border-color: var(--saffron); color: var(--ink); font-weight: 700; }
+  .month-action.danger { color: var(--red); }
+  .month-nav { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--rule); background: var(--paper); font-size: 20px; }
+  .month-bar { margin: 0 auto 22px; gap: 10px; }
+  .month-bar select { font-family: var(--font-display); font-size: 32px; font-weight: 600; border: none; background: transparent; padding: 0 4px; cursor: pointer; }
+
+  /* Summary band (Dépenses) */
+  .hero { margin: 0 auto 22px; background: var(--sand); border-radius: 22px; padding: 28px 32px; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.2fr); gap: 28px; align-items: end; }
+  .hero-kicker { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); }
+  .hero-big { font-family: var(--font-display); font-size: 84px; font-weight: 800; line-height: 0.9; letter-spacing: -0.03em; color: var(--amber); }
+  .hero-big.neg { color: var(--red); }
+  .hero-label { font-size: 12px; color: var(--ink-soft); }
+  .hero-num { font-family: var(--font-mono); font-size: 22px; font-weight: 600; }
+  .bar-track { height: 10px; border-radius: 99px; background: var(--track); overflow: hidden; }
+  .hero .bar-track { background: rgba(27,30,33,0.10); }
+  .bar-fill { height: 100%; border-radius: 99px; background: var(--blue); }
+  .bar-fill.over { background: var(--red); } .bar-fill.near { background: var(--saffron); } .bar-fill.none { background: #C9CCCF; }
+
+  /* Categories as bars */
+  .cat-list { padding: 4px 22px 10px; }
+  .cat-item { display: flex; flex-direction: column; gap: 7px; padding: 13px 0; border-bottom: 1px solid var(--rule); }
+  .cat-item:last-child { border-bottom: none; }
+  .cat-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 15px; }
+  .cat-name { font-weight: 600; }
+  .cat-amt { font-family: var(--font-mono); font-size: 14px; white-space: nowrap; }
+  .cat-state { font-size: 12px; font-weight: 500; color: var(--green); }
+  .cat-state.over { color: var(--red); font-weight: 700; } .cat-state.near { color: var(--amber); } .cat-state.none { color: var(--ink-soft); }
+
+  /* Home */
+  .home-hello { max-width: 1080px; margin: 8px auto 26px; display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; flex-wrap: wrap; }
+  .home-hello h1 { margin: 0; font-family: var(--font-display); font-size: 52px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; }
+  .home-hello h1 em { font-weight: 500; color: var(--gold); }
+  .home-grid { margin: 0 auto; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px; }
+  .home-card { border: none; border-radius: 22px; padding: 30px; gap: 16px; min-height: 340px; font-family: var(--font-body); background: var(--paper); box-shadow: 0 1px 2px rgba(27,30,33,0.05); }
+  .home-card.sand { background: var(--sand); }
+  .home-card:hover, .home-card:focus-visible { box-shadow: 0 0 0 2px var(--ink); }
+  .home-kicker { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); }
+  .home-kicker span:last-child { letter-spacing: 0; text-transform: none; font-size: 14px; color: var(--gold); }
+  .home-big { font-family: var(--font-display); font-size: 76px; font-weight: 800; line-height: 0.95; letter-spacing: -0.03em; }
+  .home-line { font-size: 15px; color: var(--ink-soft); }
+  .home-stats { margin-top: auto; display: flex; gap: 28px; padding-top: 16px; border-top: 1px solid rgba(27,30,33,0.10); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 99px; background: var(--ground); font-size: 13px; font-weight: 600; }
+  .chip.dashed { background: transparent; border: 1px dashed var(--rule); color: var(--ink-soft); font-weight: 500; }
+
+  /* Savings */
+  .acc-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .acc-pill { padding: 11px 18px; border-radius: 999px; border: 1px solid var(--rule); background: var(--paper); font-size: 14px; font-weight: 600; cursor: pointer; color: var(--ink); }
+  .acc-pill.active { background: var(--sand); border-color: var(--sand-line); }
+  .acc-pill .m { font-family: var(--font-mono); font-weight: 500; color: var(--ink-soft); margin-left: 6px; }
+  .sav-grid { max-width: 1080px; margin: 0 auto 22px; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 22px; }
+  .sav-grid > .panel { margin: 0; max-width: none; }
+  .verified { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 99px; background: var(--blue-soft); font-size: 12px; font-weight: 700; color: #2F4F6B; }
+
+  /* Phones: sections move to a bar at the bottom, summaries stack */
+  @media (max-width: 720px) {
+    .appbar { margin-bottom: 18px; backdrop-filter: none; background: var(--paper); }
+    body { padding-bottom: 84px; }
+    .appbar-inner { gap: 8px; padding: 10px 14px; }
+    .brand-sub, .invite-pill { display: none; }
+    .section-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; border-radius: 0; background: var(--paper); border-top: 1px solid var(--rule); padding: 6px 8px calc(8px + env(safe-area-inset-bottom, 0px)); justify-content: space-around; }
+    .section-nav button { flex-direction: column; gap: 2px; font-size: 11px; padding: 6px 10px; min-height: 48px; border-radius: 12px; }
+    .section-nav svg { display: block; }
+    .hero { grid-template-columns: 1fr 1fr; padding: 22px; gap: 18px; }
+    .hero > :first-child { grid-column: 1 / -1; }
+    .hero-big { font-size: 60px; }
+    .home-hello h1 { font-size: 36px; }
+    .home-big { font-size: 56px; }
+    .month-bar select { font-size: 24px; }
+    .sav-grid { grid-template-columns: 1fr; }
+    .panel-title { font-size: 19px; padding: 14px 16px; }
+    .row, .cat-list, .add-line, .totals-row { padding-left: 16px; padding-right: 16px; }
+  }
   @media (max-width: 640px) { .summary { grid-template-columns: repeat(2, 1fr); } .row, thead th, tbody td { font-size: 12px; } }
 </style>
 </head>
@@ -374,10 +495,10 @@ function BarChartCanvas({ data }) {
     chartRef.current = new Chart(canvasRef.current, {
       type: "bar",
       data: { labels: data.map((d) => d.name), datasets: [
-        { label: "Budget", data: data.map((d) => d.Budget), backgroundColor: "#7C9473" },
-        { label: "Réel", data: data.map((d) => d.Réel), backgroundColor: "#3F6B4A" },
+        { label: "Budget", data: data.map((d) => d.Budget), backgroundColor: "#DDD9CE", borderRadius: 4 },
+        { label: "Réel", data: data.map((d) => d.Réel), backgroundColor: "#4F7394", borderRadius: 4 },
       ]},
-      options: { responsive: true, plugins: { legend: { labels: { font: { family: "IBM Plex Mono", size: 11 } } } },
+      options: { responsive: true, plugins: { legend: { labels: { font: { family: "Instrument Sans", size: 12 } } } },
         scales: { x: { ticks: { font: { family: "IBM Plex Mono", size: 9 }, maxRotation: 60, minRotation: 45 } }, y: { ticks: { font: { family: "IBM Plex Mono", size: 10 } } } } },
     });
     return () => chartRef.current && chartRef.current.destroy();
@@ -392,7 +513,7 @@ function SavingsBalanceChart({ data }) {
     chartRef.current = new Chart(canvasRef.current, {
       type: "line",
       data: { labels: data.map((d) => d.label), datasets: [{ label: "Solde fin de mois", data: data.map((d) => d.balance),
-        borderColor: "#3F6B4A", backgroundColor: "rgba(63,107,74,0.12)", fill: true, tension: 0.25, pointRadius: 3 }] },
+        borderColor: "#4F7394", backgroundColor: "rgba(127,162,192,0.20)", fill: true, tension: 0.25, pointRadius: 3, pointBackgroundColor: "#4F7394", borderWidth: 3 }] },
       options: { responsive: true,
         plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `Solde : ${fmt(c.parsed.y)}` } } },
         scales: { x: { ticks: { font: { family: "IBM Plex Mono", size: 10 } } },
@@ -413,13 +534,13 @@ function MonthlySpendChart({ data, budget, selectedName }) {
       type: "bar",
       data: { labels: data.map((d) => d.name), datasets: [
         { type: "bar", label: "Dépenses", data: data.map((d) => d.Dépenses), order: 2,
-          backgroundColor: data.map((d) => (d.name === selectedName ? "#3F6B4A" : "#9DB39A")) },
+          backgroundColor: data.map((d) => (d.name === selectedName ? "#E4A72C" : d.Dépenses > budget ? "#C8705E" : "#7FA2C0")), borderRadius: 6 },
         { type: "line", label: "Budget mensuel", data: data.map(() => budget), order: 1,
-          borderColor: "#9B3D3D", borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0, fill: false },
+          borderColor: "#1B1E21", borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0, fill: false },
       ]},
       options: { responsive: true,
         plugins: {
-          legend: { labels: { font: { family: "IBM Plex Mono", size: 11 } } },
+          legend: { labels: { font: { family: "Instrument Sans", size: 12 } } },
           tooltip: { callbacks: { label: (c) => `${c.dataset.label} : ${fmt(c.parsed.y)}` } },
         },
         scales: { x: { ticks: { font: { family: "IBM Plex Mono", size: 10 } } },
@@ -549,6 +670,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const [txSort, setTxSort] = useState("default");
   const [openAutoDetails, setOpenAutoDetails] = useState({});
   const [view, setView] = useState("home"); // "home" | "depenses" | "epargne"
+  const [editBudgets, setEditBudgets] = useState(false); // categories: bars (false) or the editable table (true)
   const [selectedAccount, setSelectedAccount] = useState(null); // savings account shown on the Épargne page // { salaire: bool, epargne: bool } — detail list under the "(auto)" lines
   const [dragCategoryId, setDragCategoryId] = useState(null);
   const [dragOverCategoryId, setDragOverCategoryId] = useState(null);
@@ -598,7 +720,9 @@ function BudgetTracker({ household, onLogout, onRename }) {
       setSavings(doc.savings); setRecurringFees(doc.recurringFees || []); setCategoryRules(doc.categoryRules || {}); setSavingsAccounts(doc.savingsAccounts || {});
       const remembered = localStorage.getItem(lastMonthKey);
       const validMonth = doc.months.find((m) => m.id === remembered);
-      setSelectedMonth((validMonth && validMonth.id) || doc.months[0]?.id || null);
+      const nowKey = new Date().toISOString().slice(0, 7);
+      const currentMonth = doc.months.find((m) => monthSortKey(m) === nowKey);
+      setSelectedMonth((validMonth && validMonth.id) || (currentMonth && currentMonth.id) || doc.months[0]?.id || null);
       setLoaded(true);
     })();
   }, [household.id]);
@@ -1542,6 +1666,15 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const barData = expenseCategories.map((c) => ({ name: c.name.length > 14 ? c.name.slice(0, 13) + "…" : c.name, Budget: Number(c.budget) || 0, Réel: categoryTotal(selectedMonth, c.id) }));
   const sortedMonths = sortMonthsChronologically(months);
   const curIdx = sortedMonths.findIndex((m) => m.id === selectedMonth);
+  // Category bars for the selected month: state = over / near (≥ 90 %) / ok / none (no budget).
+  const catRows = expenseCategories.map((c) => {
+    const spent = categoryTotal(selectedMonth, c.id), budget = Number(c.budget) || 0;
+    const state = budget <= 0 ? "none" : spent > budget + 0.004 ? "over" : spent >= 0.9 * budget ? "near" : "ok";
+    const note = state === "none" ? (spent ? "hors budget" : "pas de budget") : state === "over" ? `+${fmt(Math.round(spent - budget))} au-dessus` : state === "near" ? `presque atteint · reste ${fmt(Math.round(budget - spent))}` : `reste ${fmt(Math.round(budget - spent))}`;
+    return { id: c.id, name: c.name, spent, budget, state, note, pct: budget > 0 ? Math.min(100, (spent / budget) * 100) : (spent ? 100 : 0) };
+  }).filter((c) => c.spent !== 0 || c.budget > 0)
+    .sort((a, b) => (a.state === "over") !== (b.state === "over") ? (a.state === "over" ? -1 : 1) : b.spent - a.spent);
+  const overCount = catRows.filter((c) => c.state === "over").length;
   const budgetMonthKeys = [...new Set(sortedMonths.map(monthSortKey).filter(Boolean))];
   const savingsList = Object.entries(savingsAccounts).map(([key, acc]) => {
     const { months: rows, fromBank } = savingsMonthly(acc, budgetMonthKeys);
@@ -1550,6 +1683,15 @@ function BudgetTracker({ household, onLogout, onRename }) {
   });
   const savingsTotal = savingsList.reduce((t, a) => t + (a.last ? Number(a.last.balance) || 0 : 0), 0);
   const accIdx = Math.max(0, savingsList.findIndex((a) => a.key === selectedAccount));
+  // Home card: change of the account with the most recent balance, and its sparkline.
+  const homeSavAcc = [...savingsList].filter((a) => a.last).sort((x, y) => (y.last.key > x.last.key ? 1 : -1))[0];
+  const homeSav = homeSavAcc ? { ...homeSavAcc.last, name: homeSavAcc.acc.label } : null;
+  const homeSpark = (() => {
+    const pts = homeSavAcc ? homeSavAcc.rows.filter((r) => r.balance !== null) : [];
+    if (pts.length < 2) return null;
+    const vals = pts.map((r) => r.balance), lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+    return pts.map((r, i) => `${(i / (pts.length - 1)) * 500},${(88 - ((r.balance - lo) / span) * 80).toFixed(1)}`).join(" ");
+  })();
   const curAccount = savingsList[accIdx] || null;
   const spendData = sortedMonths.map((m) => ({ name: m.label, Dépenses: Math.round(monthActualTotal(m.id) * 100) / 100 }));
   const curIncomeLines = income[selectedMonth] || [];
@@ -1603,95 +1745,107 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
   return (
     <div className="ledger">
-      <div className="ledger-head">
-        <div>
-          {editingName ? (
-            <input
-              autoFocus
-              className="title-edit-input"
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onBlur={commitNameEdit}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitNameEdit();
-                if (e.key === "Escape") setEditingName(false);
-              }}
-            />
-          ) : (
-            <h1 className="ledger-title" style={{ display: "inline", cursor: "pointer" }} title="Cliquer pour renommer" onClick={() => { setNameDraft(household.name); setEditingName(true); }}>
-              {household.name} <span style={{ fontSize: 14, color: "var(--ink-soft)" }}>✎</span>
-            </h1>
-          )}
-          <div className="ledger-sub">Revenus, épargne et dépenses — partagé et modifiable en direct</div>
+      <header className="appbar">
+        <div className="appbar-inner">
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
+            {editingName ? (
+              <input
+                autoFocus
+                className="title-edit-input"
+                aria-label="Nom du foyer"
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onBlur={commitNameEdit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitNameEdit();
+                  if (e.key === "Escape") setEditingName(false);
+                }}
+              />
+            ) : (
+              <button className="brand" title="Cliquer pour renommer le foyer" onClick={() => { setNameDraft(household.name); setEditingName(true); }}>{household.name}</button>
+            )}
+            <span className="brand-sub">budget du foyer</span>
+          </div>
+          <nav className="section-nav" aria-label="Sections">
+            <button className={view === "home" ? "active" : ""} onClick={() => setView("home")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7"></path><path d="M5 10v10h14V10"></path></svg>Accueil</button>
+            <button className={view === "depenses" ? "active" : ""} onClick={() => setView("depenses")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="15" rx="2"></rect><path d="M3 10h18"></path><path d="M8 3v4M16 3v4"></path></svg>Dépenses</button>
+            <button className={view === "epargne" ? "active" : ""} onClick={() => setView("epargne")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg>Épargne</button>
+          </nav>
+          <div className="appbar-actions">
+            <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={handleCsvFile} style={{ display: "none" }} />
+            <span className="save-pill">{saveState === "saving" ? "Enregistrement…" : saveState === "error" ? "⚠ Erreur d'enregistrement" : "✓ Enregistré"}</span>
+            <button className="reset-btn" onClick={undo} disabled={undoCount === 0} style={{ opacity: undoCount === 0 ? 0.45 : 1, cursor: undoCount === 0 ? "default" : "pointer" }} title="Annuler la dernière modification (Ctrl+Z / ⌘Z)">
+              ↶ Annuler{undoCount > 0 ? ` (${undoCount})` : ""}
+            </button>
+            <span className="invite-pill">Code : <span className="invite-code">{household.invite_code}</span></span>
+            <button className="logout-btn" onClick={onLogout}>Se déconnecter</button>
+          </div>
         </div>
-        <div className="head-actions">
-          <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={handleCsvFile} style={{ display: "none" }} />
-          <button className="reset-btn" onClick={undo} disabled={undoCount === 0} style={{ opacity: undoCount === 0 ? 0.4 : 1, cursor: undoCount === 0 ? "default" : "pointer" }} title="Annuler la dernière modification (Ctrl+Z / ⌘Z)">
-            ↶ Annuler{undoCount > 0 ? ` (${undoCount})` : ""}
-          </button>
-          <span className="save-pill">{saveState === "saving" ? "Enregistrement…" : saveState === "error" ? "Erreur d'enregistrement" : "Enregistré"}</span>
-          <span className="invite-pill">Code d'invitation : <span className="invite-code">{household.invite_code}</span></span>
-          <button className="logout-btn" onClick={onLogout}>Se déconnecter</button>
-        </div>
-      </div>
+      </header>
 
       {importSummary && (
-        <div className="import-summary" style={{ maxWidth: 900, margin: "0 auto 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, border: "1px solid var(--rule)" }}>
+        <div className="import-summary" style={{ maxWidth: 1080, margin: "0 auto 18px", padding: "12px 16px", borderRadius: 12, background: "var(--paper)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, border: "1px solid var(--rule)" }}>
           <span>{importSummary}</span>
           <button className="add-line" style={{ display: "inline", padding: 0, whiteSpace: "nowrap" }} onClick={() => setImportSummary(null)}>Fermer ✕</button>
         </div>
       )}
 
-      <div className="section-nav">
-        <button className={view === "home" ? "active" : ""} onClick={() => setView("home")}>Accueil</button>
-        <button className={view === "depenses" ? "active" : ""} onClick={() => setView("depenses")}>Suivi des dépenses mensuelles</button>
-        <button className={view === "epargne" ? "active" : ""} onClick={() => setView("epargne")}>Épargne</button>
-      </div>
-
-      {view === "home" && (
+      {view === "home" && (<React.Fragment>
+        <div className="home-hello">
+          <h1>{new Date().getHours() < 18 ? "Bonjour." : "Bonsoir."} <em>Voici {(curMonthLabel || "").toLowerCase().replace(/ \d{4}$/, "")}.</em></h1>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button className="month-action" onClick={() => { setView("depenses"); csvInputRef.current && csvInputRef.current.click(); }}>↑ Importer un relevé</button>
+            <button className="month-action primary" onClick={() => { setView("depenses"); addManualTransaction(selectedMonth); setShowTransactions(true); }}>+ Ajouter une dépense</button>
+          </div>
+        </div>
         <div className="home-grid">
-          <button className="home-card" onClick={() => setView("depenses")}>
-            <span className="home-title">Suivi des dépenses mensuelles</span>
-            <span className="home-sub">
-              {curMonthLabel} : {fmt(curActualTotal)} dépensés sur un budget de {fmt(monthBudgetTotal)}.<br />
-              Revenus, transactions, catégories et graphiques, mois par mois.
+          <button className="home-card sand" onClick={() => setView("depenses")}>
+            <span className="home-kicker"><span>Dépenses · {curMonthLabel}</span><span>Ouvrir →</span></span>
+            <span className="home-big">{fmt(Math.round(curActualTotal))}</span>
+            <span className="home-line">dépensés sur un budget de <strong style={{ color: "var(--ink)" }}>{fmt(Math.round(monthBudgetTotal))}</strong></span>
+            <span className="bar-track" style={{ background: "rgba(27,30,33,0.10)" }}><span className={"bar-fill " + (curActualTotal > monthBudgetTotal ? "over" : curActualTotal >= 0.9 * monthBudgetTotal ? "near" : "")} style={{ display: "block", width: Math.min(100, monthBudgetTotal > 0 ? (curActualTotal / monthBudgetTotal) * 100 : 0) + "%" }}></span></span>
+            <span style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 14, flexWrap: "wrap" }}>
+              {curActualTotal > monthBudgetTotal
+                ? <strong style={{ color: "var(--red)" }}>Budget dépassé de {fmt(Math.round(curActualTotal - monthBudgetTotal))}</strong>
+                : <strong style={{ color: "var(--green)" }}>Il reste {fmt(Math.round(monthBudgetTotal - curActualTotal))} de budget</strong>}
+              <span style={{ color: "var(--ink-soft)" }}>{overCount} poste(s) au-dessus</span>
             </span>
-            <span className="home-go">Ouvrir →</span>
+            <span className="home-stats">
+              <span><span className="hero-label" style={{ display: "block" }}>Revenus</span><span className="hero-num" style={{ fontSize: 18 }}>{fmt(Math.round(curIncomeTotal))}</span></span>
+              <span><span className="hero-label" style={{ display: "block" }}>Épargné</span><span className="hero-num" style={{ fontSize: 18 }}>{fmt(Math.round(curSavings))}</span></span>
+              <span><span className="hero-label" style={{ display: "block" }}>Reste</span><span className="hero-num" style={{ fontSize: 18, color: curRestant >= 0 ? "var(--amber)" : "var(--red)" }}>{fmt(Math.round(curRestant))}</span></span>
+            </span>
           </button>
           <button className="home-card" onClick={() => setView("epargne")}>
-            <span className="home-title">Épargne</span>
-            <span className="home-sub">
-              {savingsList.length === 0
-                ? "Aucun compte d'épargne pour l'instant."
-                : `${savingsList.length} compte(s) · total ${fmt(savingsTotal)}`}<br />
-              Suivez chaque compte d'épargne et son solde mois par mois.
+            <span className="home-kicker"><span>Épargne · {savingsList.length} compte(s)</span><span>Ouvrir →</span></span>
+            <span className="home-big" style={{ color: "var(--ink)" }}>{fmt(Math.round(savingsTotal))}</span>
+            {homeSav && homeSav.change !== null
+              ? <span className="home-line"><strong style={{ color: homeSav.change >= 0 ? "var(--green)" : "var(--red)" }}>{homeSav.change >= 0 ? "+" : ""}{fmt(Math.round(homeSav.change))}</strong> en {homeSav.label.toLowerCase()} sur {homeSav.name}</span>
+              : <span className="home-line">{savingsList.length ? "Total de vos comptes d'épargne" : "Ajoutez vos comptes d'épargne pour suivre leur solde"}</span>}
+            {homeSpark && <svg width="100%" height="96" viewBox="0 0 500 96" preserveAspectRatio="none" aria-hidden="true"><polygon points={homeSpark + " 500,96 0,96"} fill="var(--blue-soft)"></polygon><polyline points={homeSpark} fill="none" stroke="var(--gold)" strokeWidth="3" strokeLinejoin="round"></polyline></svg>}
+            <span style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {savingsList.map((a) => a.last
+                ? <span key={a.key} className="chip">{a.acc.label} · {fmt(Math.round(a.last.balance))}</span>
+                : <span key={a.key} className="chip dashed">{a.acc.label} · à compléter</span>)}
             </span>
-            <span className="home-go">Ouvrir →</span>
           </button>
         </div>
-      )}
+      </React.Fragment>)}
 
       {view === "epargne" && (<React.Fragment>
         <input ref={savingsInputRef} type="file" accept=".csv,.pdf,text/csv,application/pdf" onChange={handleSavingsFile} style={{ display: "none" }} />
         <div className="month-bar">
-          {savingsList.length > 0 && (<React.Fragment>
-            <button className="month-nav" title="Compte précédent" disabled={accIdx <= 0} onClick={() => setSelectedAccount(savingsList[accIdx - 1].key)}>‹</button>
-            <select aria-label="Choisir le compte d'épargne" value={curAccount ? curAccount.key : ""} onChange={(e) => setSelectedAccount(e.target.value)}>
-              {savingsList.map((a) => (<option key={a.key} value={a.key}>{a.acc.label}</option>))}
-            </select>
-            <button className="month-nav" title="Compte suivant" disabled={accIdx >= savingsList.length - 1} onClick={() => setSelectedAccount(savingsList[accIdx + 1].key)}>›</button>
-          </React.Fragment>)}
-          <button className="month-action" onClick={addSavingsAccount}>+ Ajouter un compte</button>
-          {curAccount && <button className="month-action" onClick={() => renameSavingsAccount(curAccount.key)}>✎ Renommer</button>}
-          {curAccount && <button className="month-action danger" onClick={() => removeSavingsAccount(curAccount.key)}>✕ Supprimer</button>}
-          <button className="month-action" style={{ marginLeft: "auto" }} onClick={() => savingsInputRef.current && savingsInputRef.current.click()} title="Importer le relevé PDF (LCL) ou l'export CSV d'un compte d'épargne : les opérations et le solde sont lus automatiquement">↑ Importer un relevé (PDF ou CSV)</button>
-        </div>
-
-        {savingsList.length > 1 && (
-          <div className="import-hint" style={{ maxWidth: 900, margin: "-12px auto 14px" }}>
-            Total de tous les comptes : <strong style={{ color: "var(--ink)" }}>{fmt(savingsTotal)}</strong> ({savingsList.map((a) => `${a.acc.label} ${a.last ? fmt(a.last.balance) : "—"}`).join(" · ")})
+          <div className="acc-pills" role="tablist" aria-label="Comptes d'épargne">
+            {savingsList.map((a) => (
+              <button key={a.key} role="tab" aria-selected={curAccount && a.key === curAccount.key} className={"acc-pill" + (curAccount && a.key === curAccount.key ? " active" : "")} onClick={() => setSelectedAccount(a.key)}>
+                {a.acc.label}<span className="m">{a.last ? fmt(Math.round(a.last.balance)) : "—"}</span>
+              </button>
+            ))}
+            <button className="acc-pill" style={{ borderStyle: "dashed", fontWeight: 500 }} onClick={addSavingsAccount}>+ Compte</button>
           </div>
-        )}
+          <span style={{ marginLeft: "auto", fontSize: 14, color: "var(--ink-soft)" }}>Total épargne <strong style={{ fontFamily: "var(--font-mono)", color: "var(--ink)" }}>{fmt(savingsTotal)}</strong></span>
+          <button className="month-action primary" onClick={() => savingsInputRef.current && savingsInputRef.current.click()} title="Importer le relevé PDF (LCL) ou l'export CSV d'un compte d'épargne : les opérations et le solde sont lus automatiquement">↑ Importer un relevé (PDF ou CSV)</button>
+        </div>
 
         {!curAccount ? (
           <div className="panel">
@@ -1702,23 +1856,50 @@ function BudgetTracker({ household, onLogout, onRename }) {
         ) : (() => {
           const { key, acc, rows, fromBank, last, first } = curAccount;
           const charted = rows.filter((r) => r.balance !== null);
-          return (
-            <div className="panel">
-              <div className="panel-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                <span>{acc.label} <span style={{ fontSize: 11, color: "var(--ink-soft)", fontFamily: "var(--font-mono)", fontWeight: 400 }}>{acc.manual ? "saisie manuelle" : "importé"}</span></span>
-                <span style={{ fontSize: 13, fontFamily: "var(--font-mono)", fontWeight: 400, color: "var(--ink-soft)" }}>
-                  Solde : <strong style={{ color: "var(--ink)" }}>{last ? fmt(last.balance) : "—"}</strong>
-                  {first && last && first !== last && (
-                    <span style={{ color: last.balance - first.balance >= 0 ? "var(--green)" : "var(--red)" }}>
-                      {" "}({last.balance - first.balance >= 0 ? "+" : ""}{fmt(last.balance - first.balance)} depuis {first.label.toLowerCase()})
+          const prevBal = charted.length > 1 ? charted[charted.length - 2].balance : null;
+          const recentMonth = !acc.manual && acc.entries.length ? [...acc.entries].map((e) => e.date).sort().pop().slice(0, 7) : null;
+          const recent = recentMonth ? acc.entries.filter((e) => e.date.startsWith(recentMonth)).sort((x, y) => (x.date < y.date ? 1 : -1)) : [];
+          return (<React.Fragment>
+            <div className="sav-grid">
+              <div className="panel" style={{ padding: "26px 30px", display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <span className="hero-kicker">{acc.label} · {acc.manual ? "saisie manuelle" : "importé"}</span>
+                    <span className="hero-big" style={{ color: "var(--ink)" }}>{last ? fmt(Math.round(last.balance)) : "—"}</span>
+                    <span style={{ fontSize: 15, color: "var(--ink-soft)" }}>
+                      {last ? `fin ${last.label.toLowerCase()}` : "Saisissez un premier solde ci-dessous"}
+                      {last && prevBal !== null && <React.Fragment> · <strong style={{ color: last.balance - prevBal >= 0 ? "var(--green)" : "var(--red)" }}>{last.balance - prevBal >= 0 ? "+" : ""}{fmt(Math.round(last.balance - prevBal))}</strong> ce mois</React.Fragment>}
+                      {first && last && first !== last && <React.Fragment> · <strong style={{ color: last.balance - first.balance >= 0 ? "var(--green)" : "var(--red)" }}>{last.balance - first.balance >= 0 ? "+" : ""}{fmt(Math.round(last.balance - first.balance))}</strong> depuis {first.label.toLowerCase()}</React.Fragment>}
                     </span>
-                  )}
-                </span>
+                  </div>
+                  {!acc.manual && fromBank && <span className="verified">✓ Solde lu sur le relevé</span>}
+                </div>
+                {charted.length > 1 && <SavingsBalanceChart data={charted} />}
+                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12 }}>
+                  <button className="btn-link" style={{ marginTop: 0 }} onClick={() => renameSavingsAccount(key)}>✎ Renommer le compte</button>
+                  <button className="btn-link" style={{ marginTop: 0, color: "var(--red)" }} onClick={() => removeSavingsAccount(key)}>✕ Supprimer le compte</button>
+                </div>
               </div>
-              {charted.length > 1 && <div style={{ padding: "12px 16px 0" }}><SavingsBalanceChart data={charted} /></div>}
+              <div className="panel" style={{ padding: "22px 24px", display: "flex", flexDirection: "column" }}>
+                <h2 style={{ margin: "0 0 6px", fontFamily: "var(--font-display)", fontSize: 21, fontWeight: 600 }}>{recentMonth ? monthKeyLabel(recentMonth) : "Comment le mettre à jour"}</h2>
+                {recentMonth ? recent.map((e) => (
+                  <div key={e.id} style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--rule)" }}>
+                    <span style={{ width: 46, flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--ink-soft)" }}>{e.date.slice(8, 10)}/{e.date.slice(5, 7)}</span>
+                    <span style={{ flexGrow: 1, minWidth: 0, fontSize: 14 }}>{e.label.split(" — ")[0]}{e.label.includes(" — ") && <em style={{ color: "var(--ink-soft)" }}> — {e.label.split(" — ").slice(1).join(" — ")}</em>}</span>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 600, whiteSpace: "nowrap", color: e.amount >= 0 ? "var(--green)" : "var(--red)" }}>{e.amount >= 0 ? "+" : "−"}{fmt(Math.abs(e.amount))}</span>
+                  </div>
+                )) : (
+                  <div className="import-hint" style={{ fontSize: 13, lineHeight: 1.6 }}>
+                    Tapez le solde de fin de mois dans le tableau ci-dessous, ou importez le relevé PDF / CSV du compte : les opérations et le solde seront lus automatiquement.
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="panel">
+              <div className="panel-title">Mois par mois</div>
               <div style={{ overflowX: "auto", padding: "8px 16px 12px" }}>
                 {acc.manual ? (
-                  <table style={{ width: "100%", fontSize: 12 }}>
+                  <table style={{ width: "100%" }}>
                     <thead><tr><th>Mois</th><th className="num">Solde fin de mois</th><th className="num">Variation</th></tr></thead>
                     <tbody>
                       {rows.map((r) => (
@@ -1735,7 +1916,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
                     </tbody>
                   </table>
                 ) : (
-                  <table style={{ width: "100%", fontSize: 12 }}>
+                  <table style={{ width: "100%" }}>
                     <thead><tr><th>Mois</th><th className="num">Entrées</th><th className="num">Sorties</th><th className="num">dont intérêts</th><th className="num">Solde fin de mois</th><th className="num">Variation</th></tr></thead>
                     <tbody>
                       {rows.map((r) => (
@@ -1760,7 +1941,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
                     : "Le fichier ne contient pas de colonne de solde : le solde est calculé en additionnant les opérations à partir de 0."}
               </div>
             </div>
-          );
+          </React.Fragment>);
         })()}
       </React.Fragment>)}
 
@@ -1774,9 +1955,151 @@ function BudgetTracker({ household, onLogout, onRename }) {
         <button className="month-action" onClick={addMonth}>+ Ajouter un mois</button>
         <button className="month-action" onClick={() => renameMonth(selectedMonth)}>✎ Renommer</button>
         <button className="month-action danger" disabled={months.length <= 1} onClick={() => removeMonth(selectedMonth)}>✕ Supprimer</button>
-        <button className="month-action" style={{ marginLeft: "auto" }} onClick={() => csvInputRef.current && csvInputRef.current.click()} title={`Importer un relevé CSV du compte courant (les lignes vont dans le mois de leur date)`}>
+        <button className="month-action primary" style={{ marginLeft: "auto" }} onClick={() => csvInputRef.current && csvInputRef.current.click()} title={`Importer un relevé CSV du compte courant (les lignes vont dans le mois de leur date)`}>
           ↑ Importer un relevé
         </button>
+      </div>
+
+      <section className="hero" aria-label={`Résumé de ${curMonthLabel}`}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <span className="hero-kicker">Reste à la fin du mois</span>
+          <span className={"hero-big" + (curRestant < 0 ? " neg" : "")}>{fmt(Math.round(curRestant))}</span>
+          <span className="hero-label">revenus − dépenses − épargne</span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div><div className="hero-label">Revenus</div><div className="hero-num">{fmt(Math.round(curIncomeTotal))}</div></div>
+          <div><div className="hero-label">Épargné</div><div className="hero-num">{fmt(Math.round(curSavings))}</div></div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="hero-label">Dépensé / budget</div>
+          <div className="hero-num">{fmt(Math.round(curActualTotal))} <span style={{ fontSize: 15, color: "var(--ink-soft)" }}>/ {fmt(Math.round(monthBudgetTotal))}</span></div>
+          <div className="bar-track"><div className={"bar-fill " + (curActualTotal > monthBudgetTotal ? "over" : curActualTotal >= 0.9 * monthBudgetTotal ? "near" : "")} style={{ width: Math.min(100, monthBudgetTotal > 0 ? (curActualTotal / monthBudgetTotal) * 100 : 0) + "%" }}></div></div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: curActualTotal > monthBudgetTotal ? "var(--red)" : "var(--green)" }}>
+            {monthBudgetTotal > 0 ? Math.round((curActualTotal / monthBudgetTotal) * 100) + " % · " : ""}
+            {curActualTotal > monthBudgetTotal ? `+${fmt(Math.round(curActualTotal - monthBudgetTotal))} au-dessus` : `${fmt(Math.round(monthBudgetTotal - curActualTotal))} de marge`}
+          </div>
+        </div>
+      </section>
+
+      <div className="panel">
+        <div className="panel-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span>Par catégorie</span>
+          <button className="month-action" style={{ padding: "7px 12px", fontSize: 12 }} onClick={() => setEditBudgets((v) => !v)}>{editBudgets ? "✓ Terminé" : "✎ Modifier les budgets"}</button>
+        </div>
+        {editBudgets ? (<div style={{ padding: "8px 12px 4px" }}><React.Fragment>
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th style={{ width: 24 }}></th><th>Catégorie</th><th className="num">Budget mensuel</th><th className="num">Réel ({curMonthLabel})</th><th className="num">Écart</th><th></th></tr></thead>
+          <tbody>
+            {expenseCategories.map((c, idx) => {
+              const total = categoryTotal(selectedMonth, c.id);
+              const diff = (Number(c.budget) || 0) - total;
+              const budget = Number(c.budget) || 0;
+              const pct = budget > 0 ? Math.min(150, (total / budget) * 100) : (total > 0 ? 150 : 0);
+              // Progressive yellow shade from pale (low spend) to deep amber (approaching budget) —
+              // green right on target, red once over.
+              const yellowShade = (p) => {
+                const t = Math.max(0, Math.min(1, p / 100));
+                const sat = 35 + t * 45; // 35% -> 80%
+                const light = 82 - t * 40; // 82% -> 42%
+                return `hsl(44, ${sat}%, ${light}%)`;
+              };
+              const barColor = pct > 100 ? "var(--red)" : Math.round(pct) === 100 ? "var(--green)" : yellowShade(pct);
+              return (
+                <tr
+                  key={c.id}
+                  onDragOver={(e) => { e.preventDefault(); if (dragOverCategoryId !== c.id) setDragOverCategoryId(c.id); }}
+                  onDragLeave={() => setDragOverCategoryId((v) => (v === c.id ? null : v))}
+                  onDrop={(e) => { e.preventDefault(); reorderCategory(dragCategoryId, c.id); setDragCategoryId(null); setDragOverCategoryId(null); }}
+                  style={{
+                    background: dragOverCategoryId === c.id && dragCategoryId && dragCategoryId !== c.id ? "var(--paper-alt)" : undefined,
+                    outline: dragOverCategoryId === c.id && dragCategoryId && dragCategoryId !== c.id ? "2px dashed var(--gold)" : undefined,
+                    opacity: dragCategoryId === c.id ? 0.4 : 1,
+                  }}
+                >
+                  <td style={{ padding: "6px 4px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                      <span
+                        draggable
+                        onDragStart={() => setDragCategoryId(c.id)}
+                        onDragEnd={() => { setDragCategoryId(null); setDragOverCategoryId(null); }}
+                        style={{ cursor: "grab", color: "var(--ink-soft)", fontSize: 14, userSelect: "none" }}
+                        title="Glisser pour réordonner"
+                      >
+                        ⠿
+                      </span>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                        <button className="icon-btn" style={{ color: "var(--ink-soft)", fontSize: 10, lineHeight: 1, padding: 0, opacity: idx === 0 ? 0.3 : 1 }} disabled={idx === 0} onClick={() => moveCategory(c.id, -1)} title="Monter">▲</button>
+                        <button className="icon-btn" style={{ color: "var(--ink-soft)", fontSize: 10, lineHeight: 1, padding: 0, opacity: idx === expenseCategories.length - 1 ? 0.3 : 1 }} disabled={idx === expenseCategories.length - 1} onClick={() => moveCategory(c.id, 1)} title="Descendre">▼</button>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <input type="text" value={c.name} onChange={(e) => renameCategory(c.id, e.target.value)} />
+                    {curActualTotal > 0 && total !== 0 && (
+                      <div style={{ fontSize: 10, color: "var(--ink-soft)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
+                        {Math.round((total / curActualTotal) * 100)}% des dépenses du mois
+                      </div>
+                    )}
+                  </td>
+                  <td className="num"><input type="number" value={c.budget} onChange={(e) => updateCategoryBudget(c.id, parseFloat(e.target.value) || 0)} /></td>
+                  <td className="num">{fmt(total)}</td>
+                  <td className={"num " + (diff >= 0 ? "diff-pos" : "diff-neg")}>
+                    {fmt(diff)}
+                    {budget > 0 && (
+                      <React.Fragment>
+                        <div className="budget-bar-track" style={{ marginLeft: "auto" }} title={`${Math.round(pct)}% du budget`}>
+                          <div className="budget-bar-fill" style={{ width: Math.min(100, pct) + "%", background: barColor }} />
+                        </div>
+                        <div style={{ fontSize: 10, color: barColor, fontFamily: "var(--font-mono)" }}>{Math.round(pct)}%</div>
+                      </React.Fragment>
+                    )}
+                  </td>
+                  <td>
+                    <button className="icon-btn" onClick={() => removeCategory(c.id)}>✕</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            {uncategorizedSpent(selectedMonth) > 0 && (
+              <tr>
+                <td></td>
+                <td style={{ color: "var(--red)", fontStyle: "italic" }} title="Dépenses sans catégorie — à trier dans « Transactions ». Elles comptent dans le total réel.">Non catégorisé (à trier)</td>
+                <td className="num">—</td>
+                <td className="num" style={{ color: "var(--red)" }}>{fmt(uncategorizedSpent(selectedMonth))}</td>
+                <td></td>
+                <td></td>
+              </tr>
+            )}
+            <tr><td></td><td>Total</td><td className="num">{fmt(monthBudgetTotal)}</td><td className="num">{fmt(curActualTotal)}</td><td className={"num " + (monthBudgetTotal - curActualTotal >= 0 ? "diff-pos" : "diff-neg")}>{fmt(monthBudgetTotal - curActualTotal)}</td><td></td></tr>
+          </tfoot>
+        </table>
+        <button className="add-line" onClick={addCategory}>+ Ajouter une catégorie</button>
+      </div>
+      <div className="import-hint" style={{ padding: "4px 8px 10px" }}>
+        Le montant « Réel » est calculé automatiquement à partir des transactions.
+        {(salaireCat || epargneCat) && " Salaire et Épargne n'apparaissent pas ici : voir « Revenus » et « Épargne mise de côté »."}
+      </div>
+      </React.Fragment></div>) : (
+          <div className="cat-list">
+            {catRows.map((c) => (
+              <div key={c.id} className="cat-item">
+                <div className="cat-head"><span className="cat-name">{c.name}</span><span className="cat-amt"><strong>{fmt(Math.round(c.spent))}</strong><span style={{ color: "var(--ink-soft)" }}> / {c.budget > 0 ? fmt(Math.round(c.budget)) : "—"}</span></span></div>
+                <div className="bar-track"><div className={"bar-fill " + c.state} style={{ width: c.pct + "%" }}></div></div>
+                <span className={"cat-state " + c.state}>{c.note}</span>
+              </div>
+            ))}
+            {uncategorizedSpent(selectedMonth) > 0 && (
+              <div className="cat-item">
+                <div className="cat-head"><span className="cat-name" style={{ color: "var(--red)" }}>Non catégorisé (à trier)</span><span className="cat-amt"><strong>{fmt(Math.round(uncategorizedSpent(selectedMonth)))}</strong></span></div>
+                <span className="cat-state none">Compté dans le total — classez-les dans « Transactions »</span>
+              </div>
+            )}
+            {catRows.length === 0 && <div className="import-hint" style={{ padding: "14px 0" }}>Aucune dépense ce mois-ci pour l'instant.</div>}
+          </div>
+        )}
       </div>
 
       <div className="panel">
@@ -2097,111 +2420,6 @@ function BudgetTracker({ household, onLogout, onRename }) {
         )}
       </div>
 
-      <div className="table-wrap">
-        <table>
-          <thead><tr><th style={{ width: 24 }}></th><th>Catégorie</th><th className="num">Budget mensuel</th><th className="num">Réel ({curMonthLabel})</th><th className="num">Écart</th><th></th></tr></thead>
-          <tbody>
-            {expenseCategories.map((c, idx) => {
-              const total = categoryTotal(selectedMonth, c.id);
-              const diff = (Number(c.budget) || 0) - total;
-              const budget = Number(c.budget) || 0;
-              const pct = budget > 0 ? Math.min(150, (total / budget) * 100) : (total > 0 ? 150 : 0);
-              // Progressive yellow shade from pale (low spend) to deep amber (approaching budget) —
-              // green right on target, red once over.
-              const yellowShade = (p) => {
-                const t = Math.max(0, Math.min(1, p / 100));
-                const sat = 35 + t * 45; // 35% -> 80%
-                const light = 82 - t * 40; // 82% -> 42%
-                return `hsl(44, ${sat}%, ${light}%)`;
-              };
-              const barColor = pct > 100 ? "var(--red)" : Math.round(pct) === 100 ? "var(--green)" : yellowShade(pct);
-              return (
-                <tr
-                  key={c.id}
-                  onDragOver={(e) => { e.preventDefault(); if (dragOverCategoryId !== c.id) setDragOverCategoryId(c.id); }}
-                  onDragLeave={() => setDragOverCategoryId((v) => (v === c.id ? null : v))}
-                  onDrop={(e) => { e.preventDefault(); reorderCategory(dragCategoryId, c.id); setDragCategoryId(null); setDragOverCategoryId(null); }}
-                  style={{
-                    background: dragOverCategoryId === c.id && dragCategoryId && dragCategoryId !== c.id ? "var(--paper-alt)" : undefined,
-                    outline: dragOverCategoryId === c.id && dragCategoryId && dragCategoryId !== c.id ? "2px dashed var(--gold)" : undefined,
-                    opacity: dragCategoryId === c.id ? 0.4 : 1,
-                  }}
-                >
-                  <td style={{ padding: "6px 4px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                      <span
-                        draggable
-                        onDragStart={() => setDragCategoryId(c.id)}
-                        onDragEnd={() => { setDragCategoryId(null); setDragOverCategoryId(null); }}
-                        style={{ cursor: "grab", color: "var(--ink-soft)", fontSize: 14, userSelect: "none" }}
-                        title="Glisser pour réordonner"
-                      >
-                        ⠿
-                      </span>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-                        <button className="icon-btn" style={{ color: "var(--ink-soft)", fontSize: 10, lineHeight: 1, padding: 0, opacity: idx === 0 ? 0.3 : 1 }} disabled={idx === 0} onClick={() => moveCategory(c.id, -1)} title="Monter">▲</button>
-                        <button className="icon-btn" style={{ color: "var(--ink-soft)", fontSize: 10, lineHeight: 1, padding: 0, opacity: idx === expenseCategories.length - 1 ? 0.3 : 1 }} disabled={idx === expenseCategories.length - 1} onClick={() => moveCategory(c.id, 1)} title="Descendre">▼</button>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <input type="text" value={c.name} onChange={(e) => renameCategory(c.id, e.target.value)} />
-                    {curActualTotal > 0 && total !== 0 && (
-                      <div style={{ fontSize: 10, color: "var(--ink-soft)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
-                        {Math.round((total / curActualTotal) * 100)}% des dépenses du mois
-                      </div>
-                    )}
-                  </td>
-                  <td className="num"><input type="number" value={c.budget} onChange={(e) => updateCategoryBudget(c.id, parseFloat(e.target.value) || 0)} /></td>
-                  <td className="num">{fmt(total)}</td>
-                  <td className={"num " + (diff >= 0 ? "diff-pos" : "diff-neg")}>
-                    {fmt(diff)}
-                    {budget > 0 && (
-                      <React.Fragment>
-                        <div className="budget-bar-track" style={{ marginLeft: "auto" }} title={`${Math.round(pct)}% du budget`}>
-                          <div className="budget-bar-fill" style={{ width: Math.min(100, pct) + "%", background: barColor }} />
-                        </div>
-                        <div style={{ fontSize: 10, color: barColor, fontFamily: "var(--font-mono)" }}>{Math.round(pct)}%</div>
-                      </React.Fragment>
-                    )}
-                  </td>
-                  <td>
-                    <button className="icon-btn" onClick={() => removeCategory(c.id)}>✕</button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-          <tfoot>
-            {uncategorizedSpent(selectedMonth) > 0 && (
-              <tr>
-                <td></td>
-                <td style={{ color: "var(--red)", fontStyle: "italic" }} title="Dépenses sans catégorie — à trier dans « Transactions ». Elles comptent dans le total réel.">Non catégorisé (à trier)</td>
-                <td className="num">—</td>
-                <td className="num" style={{ color: "var(--red)" }}>{fmt(uncategorizedSpent(selectedMonth))}</td>
-                <td></td>
-                <td></td>
-              </tr>
-            )}
-            <tr><td></td><td>Total</td><td className="num">{fmt(monthBudgetTotal)}</td><td className="num">{fmt(curActualTotal)}</td><td className={"num " + (monthBudgetTotal - curActualTotal >= 0 ? "diff-pos" : "diff-neg")}>{fmt(monthBudgetTotal - curActualTotal)}</td><td></td></tr>
-          </tfoot>
-        </table>
-        <button className="add-line" onClick={addCategory}>+ Ajouter une catégorie</button>
-      </div>
-      <div className="import-hint" style={{ maxWidth: 900, margin: "-16px auto 26px", padding: "0 4px" }}>
-        Le montant « Réel » est calculé automatiquement à partir des transactions ci-dessus — modifiez-les dans le panneau « Transactions ».
-        {(salaireCat || epargneCat) && " Les catégories Salaire/Épargne ne sont pas listées ici : leurs montants apparaissent dans « Revenus » et « Épargne mise de côté » plus haut."}
-      </div>
-
-      <div className="summary">
-        <div className="stat"><div className="stat-label">Revenus du mois</div><div className="stat-value">{fmt(curIncomeTotal)}</div></div>
-        <div className="stat"><div className="stat-label">Dépenses réelles</div><div className="stat-value">{fmt(curActualTotal)}</div></div>
-        <div className="stat"><div className="stat-label">Épargne</div><div className="stat-value">{fmt(curSavings)}</div></div>
-        <div className="stat">
-          <div className="stat-label">Revenus − Dépenses − Épargne</div>
-          <div className="stat-value" style={{ color: curRestant >= 0 ? "#3F6B4A" : "#9B3D3D" }}>{fmt(curRestant)}</div>
-        </div>
-      </div>
 
       <div className="charts">
         <div className="chart-box"><p className="chart-title">Budget vs. réel par catégorie</p><BarChartCanvas data={barData} /></div>
