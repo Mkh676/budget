@@ -296,18 +296,30 @@ function BarChartCanvas({ data }) {
   }, [data]);
   return <canvas ref={canvasRef} height="110"></canvas>;
 }
-function LineChartCanvas({ data }) {
+// Spending per month (savings and income excluded), selected month highlighted,
+// with the total monthly budget as a dashed reference line.
+function MonthlySpendChart({ data, budget, selectedName }) {
   const canvasRef = useRef(null); const chartRef = useRef(null);
   useEffect(() => {
     if (chartRef.current) chartRef.current.destroy();
     chartRef.current = new Chart(canvasRef.current, {
-      type: "line",
-      data: { labels: data.map((d) => d.name), datasets: [{ label: "Restant", data: data.map((d) => d.Restant), borderColor: "#232B3A", backgroundColor: "#232B3A", tension: 0.25 }] },
-      options: { responsive: true, plugins: { legend: { labels: { font: { family: "IBM Plex Mono", size: 11 } } } },
-        scales: { x: { ticks: { font: { family: "IBM Plex Mono", size: 10 } } }, y: { ticks: { font: { family: "IBM Plex Mono", size: 10 } } } } },
+      type: "bar",
+      data: { labels: data.map((d) => d.name), datasets: [
+        { type: "bar", label: "Dépenses", data: data.map((d) => d.Dépenses), order: 2,
+          backgroundColor: data.map((d) => (d.name === selectedName ? "#3F6B4A" : "#9DB39A")) },
+        { type: "line", label: "Budget mensuel", data: data.map(() => budget), order: 1,
+          borderColor: "#9B3D3D", borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0, fill: false },
+      ]},
+      options: { responsive: true,
+        plugins: {
+          legend: { labels: { font: { family: "IBM Plex Mono", size: 11 } } },
+          tooltip: { callbacks: { label: (c) => `${c.dataset.label} : ${fmt(c.parsed.y)}` } },
+        },
+        scales: { x: { ticks: { font: { family: "IBM Plex Mono", size: 10 } } },
+          y: { beginAtZero: true, ticks: { font: { family: "IBM Plex Mono", size: 10 }, callback: (v) => fmt(v) } } } },
     });
     return () => chartRef.current && chartRef.current.destroy();
-  }, [data]);
+  }, [data, budget, selectedName]);
   return <canvas ref={canvasRef} height="90"></canvas>;
 }
 
@@ -1178,7 +1190,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
   const barData = expenseCategories.map((c) => ({ name: c.name.length > 14 ? c.name.slice(0, 13) + "…" : c.name, Budget: Number(c.budget) || 0, Réel: categoryTotal(selectedMonth, c.id) }));
   const sortedMonths = sortMonthsChronologically(months);
-  const trendData = sortedMonths.map((m) => ({ name: m.label, Restant: Math.round(monthRestant(m.id)) }));
+  const spendData = sortedMonths.map((m) => ({ name: m.label, Dépenses: Math.round(monthActualTotal(m.id) * 100) / 100 }));
   const curIncomeLines = income[selectedMonth] || [];
   const curIncomeTotal = monthIncome(selectedMonth);
   const curActualTotal = monthActualTotal(selectedMonth);
@@ -1737,7 +1749,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
       <div className="charts">
         <div className="chart-box"><p className="chart-title">Budget vs. réel par catégorie</p><BarChartCanvas data={barData} /></div>
-        <div className="chart-box"><p className="chart-title">Restant en fin de mois — tendance</p><LineChartCanvas data={trendData} /></div>
+        <div className="chart-box"><p className="chart-title">Dépenses par mois (hors épargne)</p><MonthlySpendChart data={spendData} budget={monthBudgetTotal} selectedName={curMonthLabel} /></div>
       </div>
     </div>
   );
