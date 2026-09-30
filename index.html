@@ -152,6 +152,29 @@ function dateToDayNumber(date) {
   const t = Date.UTC(y, mo - 1, da);
   return isNaN(t) ? null : Math.round(t / 86400000);
 }
+// Amount search in the transaction list. Returns a test on the absolute
+// amount, or null when the query isn't an amount:
+//   "42"      -> 42.00 to 42.99       "42,10" -> exactly 42.10
+//   ">100" / "<20" / ">=50"          "50-100" -> between 50 and 100
+function parseAmountQuery(q) {
+  const s = (q || "").replace(/\s|€/g, "").replace(/,/g, ".");
+  const num = "(\\d+(?:\\.\\d{1,2})?)";
+  let m;
+  if ((m = s.match(new RegExp("^(>=|<=|>|<)" + num + "$")))) {
+    const n = parseFloat(m[2]);
+    return { ">": (a) => a > n, "<": (a) => a < n, ">=": (a) => a >= n, "<=": (a) => a <= n }[m[1]];
+  }
+  if ((m = s.match(new RegExp("^" + num + "-" + num + "$")))) {
+    const lo = Math.min(parseFloat(m[1]), parseFloat(m[2])), hi = Math.max(parseFloat(m[1]), parseFloat(m[2]));
+    return (a) => a >= lo - 0.005 && a <= hi + 0.005;
+  }
+  if ((m = s.match(new RegExp("^" + num + "$")))) {
+    const n = parseFloat(m[1]);
+    return m[1].includes(".") ? (a) => Math.abs(a - n) < 0.005 : (a) => Math.floor(a + 0.005) === n;
+  }
+  return null;
+}
+
 // Where an imported row's category came from (shown as a tooltip on its category).
 const CATEGORY_SOURCE_LABELS = {
   manual: "Choisie par vous",
@@ -385,6 +408,10 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const [showTransactions, setShowTransactions] = useState(true);
   const [showRecurringSection, setShowRecurringSection] = useState(false);
   const [showRecurringFees, setShowRecurringFees] = useState(true);
+  // Transaction list: search (keyword or amount), category filter, sort.
+  const [txQuery, setTxQuery] = useState("");
+  const [txCatFilter, setTxCatFilter] = useState(""); // "" = all, "__none__" = uncategorized, else a category id
+  const [txSort, setTxSort] = useState("default");
   const [openAutoDetails, setOpenAutoDetails] = useState({}); // { salaire: bool, epargne: bool } — detail list under the "(auto)" lines
   const [dragCategoryId, setDragCategoryId] = useState(null);
   const [dragOverCategoryId, setDragOverCategoryId] = useState(null);
@@ -1309,7 +1336,34 @@ function BudgetTracker({ household, onLogout, onRename }) {
               <div className="import-hint" style={{ padding: 16 }}>Aucune dépense enregistrée ce mois-ci pour l'instant.</div>
             ) : (
               (() => {
-                const all = monthTransactions(selectedMonth);
+                const everything = monthTransactions(selectedMonth);
+                // Search: keyword in the label (accents/case ignored), or an amount / amount range.
+                const amountTest = parseAmountQuery(txQuery);
+                const words = normText(txQuery).split(" ").filter(Boolean);
+                const matchesSearch = (tx) => {
+                  if (!txQuery.trim()) return true;
+                  if (amountTest && amountTest(Math.abs(Number(tx.amount) || 0))) return true;
+                  const label = normText(tx.label);
+                  return words.length > 0 && words.every((w) => label.includes(w));
+                };
+                const catName = (tx) => categories.find((c) => c.id === tx.categoryId)?.name || "";
+                const matchesCategory = (tx) =>
+                  !txCatFilter ? true :
+                  txCatFilter === "__none__" ? !categories.some((c) => c.id === tx.categoryId) :
+                  tx.categoryId === txCatFilter;
+                const day = (tx) => { const d = dateToDayNumber(tx.date); return d === null ? -Infinity : d; };
+                const sorters = {
+                  date_desc: (a, b) => day(b) - day(a),
+                  date_asc: (a, b) => day(a) - day(b),
+                  amount_desc: (a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0),
+                  amount_asc: (a, b) => (Number(a.amount) || 0) - (Number(b.amount) || 0),
+                  category: (a, b) => (catName(a) || "\uffff").localeCompare(catName(b) || "\uffff", "fr") || day(b) - day(a),
+                  label: (a, b) => (a.label || "").localeCompare(b.label || "", "fr"),
+                };
+                const all = everything.filter((tx) => matchesSearch(tx) && matchesCategory(tx));
+                if (sorters[txSort]) all.sort(sorters[txSort]);
+                const filtering = !!(txQuery.trim() || txCatFilter);
+                const filteredTotal = all.reduce((s, tx) => s + (Number(tx.amount) || 0), 0);
                 const recurring = all.filter((tx) => tx.recurring);
                 const uncategorized = all.filter((tx) => !tx.recurring && !tx.categoryId);
                 const categorized = all.filter((tx) => !tx.recurring && tx.categoryId);
@@ -1382,8 +1436,48 @@ function BudgetTracker({ household, onLogout, onRename }) {
                     )}
                   </React.Fragment>
                 );
+                const toolbarStyle = { fontFamily: "var(--font-mono)", fontSize: 12, padding: "5px 6px", border: "1px solid var(--rule)", borderRadius: 3, background: "#fff" };
                 return (
                   <React.Fragment>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "10px 16px", borderBottom: "1px solid var(--rule)" }}>
+                      <input
+                        type="search"
+                        style={{ ...toolbarStyle, flex: "1 1 200px", minWidth: 0 }}
+                        placeholder="Rechercher : mot-clé, 42, 42,10, >100, 50-100…"
+                        title="Mot-clé dans le libellé, ou montant : 42 (42,00 à 42,99), 42,10 (exact), >100, <20, 50-100"
+                        value={txQuery}
+                        onChange={(e) => setTxQuery(e.target.value)}
+                      />
+                      <select style={{ ...toolbarStyle, flex: "0 1 190px", minWidth: 0 }} value={txCatFilter} onChange={(e) => setTxCatFilter(e.target.value)}>
+                        <option value="">Toutes les catégories</option>
+                        <option value="__none__">— Non catégorisé —</option>
+                        {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                      </select>
+                      <select style={{ ...toolbarStyle, flex: "0 1 170px", minWidth: 0 }} value={txSort} onChange={(e) => setTxSort(e.target.value)}>
+                        <option value="default">Tri : ordre d'ajout</option>
+                        <option value="date_desc">Date ↓ (récent)</option>
+                        <option value="date_asc">Date ↑ (ancien)</option>
+                        <option value="amount_desc">Montant ↓ (plus grand)</option>
+                        <option value="amount_asc">Montant ↑ (plus petit)</option>
+                        <option value="category">Catégorie (A→Z)</option>
+                        <option value="label">Libellé (A→Z)</option>
+                      </select>
+                      {(filtering || txSort !== "default") && (
+                        <button className="btn-link" style={{ marginTop: 0 }} onClick={() => { setTxQuery(""); setTxCatFilter(""); setTxSort("default"); }}>Réinitialiser</button>
+                      )}
+                    </div>
+                    {filtering && (
+                      <div className="import-summary" style={{ paddingTop: 8 }}>
+                        {all.length} transaction(s) sur {everything.length} · total {fmt(filteredTotal)}
+                      </div>
+                    )}
+                    {filtering && all.length === 0 && (
+                      <div className="import-hint" style={{ padding: "0 16px 12px" }}>Aucune transaction ne correspond.</div>
+                    )}
+                    {/* While searching, filtering or sorting: one flat list in exactly that order. */}
+                    {(filtering || txSort !== "default") ? (
+                      <div className="import-preview" style={{ maxHeight: 520 }}>{all.map(renderRow)}</div>
+                    ) : (<React.Fragment>
                     {uncategorized.length > 0 && (
                       <React.Fragment>
                         <div className="import-summary" style={{ color: "var(--red)", fontWeight: 600 }}>
@@ -1419,6 +1513,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
                         </div>
                       </React.Fragment>
                     )}
+                    </React.Fragment>)}
                   </React.Fragment>
                 );
               })()
