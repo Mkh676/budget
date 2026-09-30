@@ -296,6 +296,25 @@ function BarChartCanvas({ data }) {
   }, [data]);
   return <canvas ref={canvasRef} height="110"></canvas>;
 }
+// Savings account balance at the end of each month.
+function SavingsBalanceChart({ data }) {
+  const canvasRef = useRef(null); const chartRef = useRef(null);
+  useEffect(() => {
+    if (chartRef.current) chartRef.current.destroy();
+    chartRef.current = new Chart(canvasRef.current, {
+      type: "line",
+      data: { labels: data.map((d) => d.label), datasets: [{ label: "Solde fin de mois", data: data.map((d) => d.balance),
+        borderColor: "#3F6B4A", backgroundColor: "rgba(63,107,74,0.12)", fill: true, tension: 0.25, pointRadius: 3 }] },
+      options: { responsive: true,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `Solde : ${fmt(c.parsed.y)}` } } },
+        scales: { x: { ticks: { font: { family: "IBM Plex Mono", size: 10 } } },
+          y: { ticks: { font: { family: "IBM Plex Mono", size: 10 }, callback: (v) => fmt(v) } } } },
+    });
+    return () => chartRef.current && chartRef.current.destroy();
+  }, [data]);
+  return <canvas ref={canvasRef} height="80"></canvas>;
+}
+
 // Spending per month (savings and income excluded), selected month highlighted,
 // with the total monthly budget as a dashed reference line.
 function MonthlySpendChart({ data, budget, selectedName }) {
@@ -428,6 +447,9 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const [transactions, setTransactions] = useState({}); // { [monthId]: [{id, date, label, amount, categoryId}] }
   const [recurringFees, setRecurringFees] = useState([]); // [{id, label, amount, dayOfMonth, categoryId}] — household-wide, not per-month
   const [categoryRules, setCategoryRules] = useState({}); // { [merchantKey]: categoryId } — learned from manual categorization
+  // Savings accounts imported from their own bank CSV, kept apart from the budget:
+  // { [accountKey]: { label, entries: [{ id, date, label, amount (+ = money in), balance|null, importSig }] } }
+  const [savingsAccounts, setSavingsAccounts] = useState({});
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [saveState, setSaveState] = useState("idle");
   const [showTransactions, setShowTransactions] = useState(true);
@@ -437,7 +459,8 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const [txQuery, setTxQuery] = useState("");
   const [txCatFilter, setTxCatFilter] = useState(""); // "" = all, "__none__" = uncategorized, else a category id
   const [txSort, setTxSort] = useState("default");
-  const [openAutoDetails, setOpenAutoDetails] = useState({}); // { salaire: bool, epargne: bool } — detail list under the "(auto)" lines
+  const [openAutoDetails, setOpenAutoDetails] = useState({});
+  const [showSavingsPanel, setShowSavingsPanel] = useState(true); // { salaire: bool, epargne: bool } — detail list under the "(auto)" lines
   const [dragCategoryId, setDragCategoryId] = useState(null);
   const [dragOverCategoryId, setDragOverCategoryId] = useState(null);
   const saveTimer = useRef(null);
@@ -483,7 +506,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
       }
 
       setCategories(doc.categories); setMonths(sortMonthsChronologically(doc.months)); setIncome(doc.income);
-      setSavings(doc.savings); setRecurringFees(doc.recurringFees || []); setCategoryRules(doc.categoryRules || {});
+      setSavings(doc.savings); setRecurringFees(doc.recurringFees || []); setCategoryRules(doc.categoryRules || {}); setSavingsAccounts(doc.savingsAccounts || {});
       const remembered = localStorage.getItem(lastMonthKey);
       const validMonth = doc.months.find((m) => m.id === remembered);
       setSelectedMonth((validMonth && validMonth.id) || doc.months[0]?.id || null);
@@ -545,12 +568,12 @@ function BudgetTracker({ household, onLogout, onRename }) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       const { error } = await sb.from("household_budget")
-        .update({ data: { categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, migratedActuals: true }, updated_at: new Date().toISOString() })
+        .update({ data: { categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, migratedActuals: true }, updated_at: new Date().toISOString() })
         .eq("household_id", household.id);
       setSaveState(error ? "error" : "saved");
     }, 500);
     return () => clearTimeout(saveTimer.current);
-  }, [categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, loaded]);
+  }, [categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, loaded]);
 
   // ---------- Undo ----------
   // Every change to the budget data pushes the previous state onto a stack.
@@ -565,7 +588,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const [undoCount, setUndoCount] = useState(0);
   useEffect(() => {
     if (!loaded) return;
-    const snap = { categories, months, income, savings, actuals, transactions, recurringFees, categoryRules };
+    const snap = { categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts };
     const now = Date.now();
     if (!lastSnapshot.current) undoReadyAt.current = now + 1500;
     if (restoringUndo.current) {
@@ -580,7 +603,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
     }
     if (lastSnapshot.current) lastChangeAt.current = now;
     lastSnapshot.current = snap;
-  }, [categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, loaded]);
+  }, [categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, loaded]);
 
   const undo = () => {
     const prev = undoStack.current[undoStack.current.length - 1];
@@ -589,7 +612,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
     setUndoCount(undoStack.current.length);
     restoringUndo.current = true;
     setCategories(prev.categories); setMonths(prev.months); setIncome(prev.income); setSavings(prev.savings);
-    setActuals(prev.actuals); setTransactions(prev.transactions); setRecurringFees(prev.recurringFees); setCategoryRules(prev.categoryRules);
+    setActuals(prev.actuals); setTransactions(prev.transactions); setRecurringFees(prev.recurringFees); setCategoryRules(prev.categoryRules); setSavingsAccounts(prev.savingsAccounts || {});
     if (!prev.months.some((m) => m.id === selectedMonth)) setSelectedMonth(prev.months[0]?.id || null);
   };
   // Ctrl+Z / Cmd+Z undoes the last change (controlled inputs have no reliable native undo).
@@ -1025,6 +1048,115 @@ function BudgetTracker({ household, onLogout, onRename }) {
     return rows;
   };
 
+  // ---------- Savings account import (separate from the budget) ----------
+  const savingsInputRef = useRef(null);
+  const parseNumber = (v) => parseFloat(String(v || "").replace(/[\s\u00a0\u202f]/g, "").replace(",", "."));
+  const parseSavingsCsv = (text) => {
+    text = text.replace(/^\uFEFF/, "");
+    const lines = text.split(/\r\n|\n/).filter((l) => l.trim().length > 0);
+    if (lines.length < 2) return "invalid";
+    const delim = (lines[0].match(/;/g) || []).length >= (lines[0].match(/,/g) || []).length ? ";" : ",";
+    const split = (line) => line.split(delim).map((c) => c.trim().replace(/^"|"$/g, ""));
+    const header = split(lines[0]).map((h) => h.toLowerCase());
+    const dateIdx = header.findIndex((h) => h.includes("date"));
+    const labelIdx = header.findIndex((h) => (h.includes("libell") || h === "label") && !h.includes("compte") && !h.includes("sugg"));
+    const amountIdx = header.findIndex((h) => h.includes("montant") || h === "amount" || h.includes("solde"));
+    // BoursoBank: the 1st "Solde" column is the amount, the 2nd one the account balance after that day.
+    const balanceIdx = header.findIndex((h, i) => i !== amountIdx && (h.includes("solde") || h.includes("balance")));
+    const accNumIdx = header.findIndex((h) => h.includes("numéro compte") || h.includes("numero compte") || h === "accountnum");
+    const accLabelIdx = header.findIndex((h) => h.includes("libellé compte") || h.includes("libelle compte") || h === "accountlabel");
+    if (dateIdx === -1 || labelIdx === -1 || amountIdx === -1) return "invalid";
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const c = split(lines[i]);
+      const amount = parseNumber(c[amountIdx]);
+      if (isNaN(amount) || !c[dateIdx]) continue;
+      const balance = balanceIdx !== -1 ? parseNumber(c[balanceIdx]) : NaN;
+      const label = c[labelIdx] || "(sans libellé)";
+      rows.push({
+        account: (accNumIdx !== -1 && c[accNumIdx]) || (accLabelIdx !== -1 && c[accLabelIdx]) || "epargne",
+        accountLabel: (accLabelIdx !== -1 && c[accLabelIdx]) || "Compte d'épargne",
+        date: c[dateIdx], label, amount, balance: isNaN(balance) ? null : balance,
+        importSig: c[dateIdx] + "|" + amount.toFixed(2) + "|" + label.trim().toLowerCase(),
+      });
+    }
+    return rows;
+  };
+  const handleSavingsFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const content = ev.target.result;
+      const rows = parseSavingsCsv(content);
+      if (rows === "invalid" || rows.length === 0) {
+        window.alert("Colonnes attendues introuvables (date, libellé, montant). Vérifiez le fichier exporté de votre compte d'épargne.");
+        return;
+      }
+      // Re-importing is safe: each line already saved (same date, amount and label) is skipped once.
+      let added = 0, skipped = 0;
+      const next = { ...savingsAccounts };
+      for (const r of rows) {
+        const acc = next[r.account] ? { ...next[r.account], entries: [...next[r.account].entries] } : { label: r.accountLabel, entries: [] };
+        next[r.account] = acc;
+        acc._pool = acc._pool || acc.entries.map((x) => x.importSig);
+        const hit = acc._pool.indexOf(r.importSig);
+        if (hit !== -1) { acc._pool.splice(hit, 1); skipped++; continue; }
+        acc.entries.push({ id: uid("sav"), date: r.date, label: r.label, amount: r.amount, balance: r.balance, importSig: r.importSig });
+        added++;
+      }
+      for (const k of Object.keys(next)) delete next[k]._pool;
+      setSavingsAccounts(next);
+      setImportSummary(`Épargne : ${added} opération(s) importée(s)` + (skipped ? `, ${skipped} déjà présente(s) ignorée(s)` : "") + ". Voir « Comptes d'épargne ».");
+      setShowSavingsPanel(true);
+      saveImportFile(file.name, content, null, added, skipped);
+    };
+    reader.readAsText(file, "utf-8");
+    e.target.value = "";
+  };
+  const removeSavingsAccount = (key) => {
+    const acc = savingsAccounts[key];
+    if (!window.confirm(`Êtes-vous sûr de vouloir supprimer le compte d'épargne « ${acc?.label || key} » et ses ${acc?.entries.length || 0} opération(s) ? (Annulable avec « ↶ Annuler »)`)) return;
+    setSavingsAccounts((a) => { const { [key]: _, ...rest } = a; return rest; });
+  };
+  // Month-by-month summary of one savings account: money in, money out,
+  // interest, end-of-month balance and change. The balance comes from the
+  // bank's balance column when present (last day of the month), otherwise it
+  // is computed by adding up the operations from 0. Months without any
+  // operation are filled in with the previous balance.
+  const savingsMonthly = (entries) => {
+    const withDay = entries.map((e) => ({ ...e, day: dateToDayNumber(e.date) })).filter((e) => e.day !== null).sort((a, b) => a.day - b.day);
+    if (withDay.length === 0) return { months: [], fromBank: false };
+    const fromBank = withDay.some((e) => typeof e.balance === "number");
+    const keyOf = (day) => { const d = new Date(day * 86400000); return d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0"); };
+    const byMonth = {};
+    let running = 0;
+    for (const e of withDay) {
+      const k = keyOf(e.day);
+      const m = (byMonth[k] = byMonth[k] || { in: 0, out: 0, interest: 0, balance: null, lastDay: -Infinity });
+      if (e.amount >= 0) m.in += e.amount; else m.out += -e.amount;
+      if (e.amount > 0 && /int[ée]r[êe]ts?/i.test(e.label)) m.interest += e.amount;
+      running += e.amount;
+      if (fromBank) { if (typeof e.balance === "number" && e.day >= m.lastDay) { m.balance = e.balance; m.lastDay = e.day; } }
+      else m.balance = running;
+    }
+    const keys = Object.keys(byMonth).sort();
+    const [y0, m0] = keys[0].split("-").map(Number);
+    const [y1, m1] = keys[keys.length - 1].split("-").map(Number);
+    const out = [];
+    let prevBalance = null;
+    for (let y = y0, mo = m0; y < y1 || (y === y1 && mo <= m1); mo === 12 ? (y++, mo = 1) : mo++) {
+      const k = y + "-" + String(mo).padStart(2, "0");
+      const m = byMonth[k] || { in: 0, out: 0, interest: 0, balance: null };
+      const balance = m.balance !== null ? m.balance : prevBalance;
+      const name = MONTH_NAMES_FR[mo - 1];
+      out.push({ key: k, label: name.charAt(0).toUpperCase() + name.slice(1) + " " + y, in: m.in, out: m.out, interest: m.interest,
+        balance, change: balance !== null && prevBalance !== null ? balance - prevBalance : null });
+      if (balance !== null) prevBalance = balance;
+    }
+    return { months: out, fromBank };
+  };
+
   const handleCsvFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1366,6 +1498,69 @@ function BudgetTracker({ household, onLogout, onRename }) {
           </React.Fragment>
         )}
         <div className="totals-row"><span>Total épargne</span><span>{fmt(curSavings)}</span></div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ cursor: "pointer" }} onClick={() => setShowSavingsPanel((v) => !v)}>
+            Comptes d'épargne — évolution {showSavingsPanel ? "▲" : "▼"}
+          </span>
+          <input ref={savingsInputRef} type="file" accept=".csv,text/csv" onChange={handleSavingsFile} style={{ display: "none" }} />
+          <button className="reset-btn" onClick={() => savingsInputRef.current && savingsInputRef.current.click()} title="Importer l'export CSV de votre compte d'épargne (Livret A, LDDS…)">
+            ⭱ Importer un relevé d'épargne
+          </button>
+        </div>
+        {showSavingsPanel && (
+          Object.keys(savingsAccounts).length === 0 ? (
+            <div className="import-hint" style={{ padding: 16 }}>
+              Importez l'export CSV de votre compte d'épargne (même format que le compte courant). Vous verrez le solde et les mouvements mois par mois. Ces opérations restent séparées du budget.
+            </div>
+          ) : (
+            Object.entries(savingsAccounts).map(([key, acc]) => {
+              const { months: rows, fromBank } = savingsMonthly(acc.entries);
+              const last = [...rows].reverse().find((r) => r.balance !== null);
+              const first = rows.find((r) => r.balance !== null);
+              return (
+                <div key={key} style={{ padding: "12px 16px", borderBottom: "1px solid var(--rule)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                    <strong style={{ fontFamily: "var(--font-display)", fontSize: 16 }}>{acc.label}</strong>
+                    <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>
+                      Solde : <strong style={{ color: "var(--ink)" }}>{last ? fmt(last.balance) : "—"}</strong>
+                      {first && last && first !== last && (
+                        <span style={{ color: last.balance - first.balance >= 0 ? "var(--green)" : "var(--red)" }}>
+                          {" "}({last.balance - first.balance >= 0 ? "+" : ""}{fmt(last.balance - first.balance)} depuis {first.label.toLowerCase()})
+                        </span>
+                      )}
+                      {" · "}
+                      <button className="btn-link" style={{ marginTop: 0, fontSize: 11 }} onClick={() => removeSavingsAccount(key)}>supprimer</button>
+                    </span>
+                  </div>
+                  {rows.length > 1 && <SavingsBalanceChart data={rows.filter((r) => r.balance !== null)} />}
+                  <div style={{ overflowX: "auto", marginTop: 8 }}>
+                    <table style={{ width: "100%", fontSize: 12 }}>
+                      <thead><tr><th>Mois</th><th className="num">Entrées</th><th className="num">Sorties</th><th className="num">dont intérêts</th><th className="num">Solde fin de mois</th><th className="num">Variation</th></tr></thead>
+                      <tbody>
+                        {[...rows].reverse().map((r) => (
+                          <tr key={r.key}>
+                            <td>{r.label}</td>
+                            <td className="num" style={{ color: r.in ? "var(--green)" : "var(--ink-soft)" }}>{r.in ? "+" + fmt(r.in) : "—"}</td>
+                            <td className="num" style={{ color: r.out ? "var(--red)" : "var(--ink-soft)" }}>{r.out ? "−" + fmt(r.out) : "—"}</td>
+                            <td className="num">{r.interest ? fmt(r.interest) : "—"}</td>
+                            <td className="num"><strong>{r.balance !== null ? fmt(r.balance) : "—"}</strong></td>
+                            <td className={"num " + (r.change === null ? "" : r.change >= 0 ? "diff-pos" : "diff-neg")}>{r.change === null ? "—" : (r.change >= 0 ? "+" : "") + fmt(r.change)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {!fromBank && (
+                    <div className="import-hint">Le fichier ne contient pas de colonne de solde : le solde est calculé en additionnant les opérations à partir de 0.</div>
+                  )}
+                </div>
+              );
+            })
+          )
+        )}
       </div>
 
       <div className="panel">
