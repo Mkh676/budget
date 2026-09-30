@@ -436,8 +436,14 @@ function BudgetTracker({ household, onLogout, onRename }) {
     (async () => {
       const { data, error } = await sb.from("household_budget").select("data").eq("household_id", household.id).maybeSingle();
       const doc = (data && data.data) || emptyBudgetDoc();
-      const txs = doc.transactions || {};
-      let acts = doc.actuals || {};
+      // Drop data left behind by month tabs that no longer exist (tabs deleted
+      // before deletion also removed their data), so it can't resurface or
+      // interfere with imports. It's removed from storage on the next save.
+      const liveMonths = new Set((doc.months || []).map((m) => m.id));
+      const onlyLive = (obj) => Object.fromEntries(Object.entries(obj || {}).filter(([k]) => liveMonths.has(k)));
+      doc.income = onlyLive(doc.income); doc.savings = onlyLive(doc.savings);
+      const txs = onlyLive(doc.transactions);
+      let acts = onlyLive(doc.actuals);
 
       // One-time migration: turn any legacy "manual total" numbers into a
       // real transaction line item, so everything lives in one unified list.
@@ -670,9 +676,18 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const removeMonth = (id) => {
     const m = months.find((x) => x.id === id);
     const n = (transactions[id] || []).length;
-    if (!window.confirm(`Supprimer l'onglet « ${m?.label || ""} »${n ? ` et ses ${n} transaction(s)` : ""} ? (Annulable avec « ↶ Annuler »)`)) return;
+    if (!window.confirm(
+      `Êtes-vous sûr de vouloir supprimer l'onglet « ${m?.label || ""} » ?\n\n` +
+      `Tout ce qui lui est lié sera supprimé : ${n} transaction(s), revenus et épargne du mois.\n` +
+      `(Vous pourrez encore revenir en arrière avec « ↶ Annuler » tant que la page reste ouverte.)`
+    )) return;
+    // Remove every piece of data keyed by this month, not just the tab.
+    const without = (obj) => { const { [id]: _, ...rest } = obj || {}; return rest; };
     setMonths((ms) => ms.filter((x) => x.id !== id));
-    setTransactions((t) => { const { [id]: _, ...rest } = t; return rest; });
+    setTransactions(without);
+    setIncome(without);
+    setSavings(without);
+    setActuals(without);
     if (selectedMonth === id) { const rest = months.filter((m) => m.id !== id); if (rest.length) setSelectedMonth(rest[0].id); }
   };
   const [editingMonthId, setEditingMonthId] = useState(null);
