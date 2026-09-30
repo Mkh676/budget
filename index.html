@@ -385,6 +385,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const [showTransactions, setShowTransactions] = useState(true);
   const [showRecurringSection, setShowRecurringSection] = useState(false);
   const [showRecurringFees, setShowRecurringFees] = useState(true);
+  const [openAutoDetails, setOpenAutoDetails] = useState({}); // { salaire: bool, epargne: bool } — detail list under the "(auto)" lines
   const [dragCategoryId, setDragCategoryId] = useState(null);
   const [dragOverCategoryId, setDragOverCategoryId] = useState(null);
   const saveTimer = useRef(null);
@@ -1092,6 +1093,25 @@ function BudgetTracker({ household, onLogout, onRename }) {
     if (isRealCurrentMonth) return (Number(f.dayOfMonth) || 1) <= todayDay ? "overdue" : "upcoming";
     return "unmatched";
   };
+  // Detail list under an "(auto)" total: the transactions of this month in that
+  // category. `sign` flips amounts so they read the same way as the total
+  // (salary is stored negative = money received).
+  const renderAutoDetails = (catId, sign) => {
+    const txs = monthTransactions(selectedMonth).filter((t) => t.categoryId === catId);
+    return (
+      <div style={{ padding: "2px 16px 10px 34px", fontSize: 12, color: "var(--ink-soft)" }}>
+        {txs.length === 0 ? (
+          <div>Aucune transaction dans cette catégorie ce mois-ci.</div>
+        ) : txs.map((t) => (
+          <div key={t.id} style={{ display: "flex", gap: 10, padding: "3px 0", borderBottom: "1px dotted var(--rule)" }}>
+            <span style={{ width: 84, flexShrink: 0 }}>{t.date || "—"}</span>
+            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.label}>{t.label}</span>
+            <span style={{ fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>{fmt(sign * (Number(t.amount) || 0))}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
   const confirmedFees = recurringFees.filter((f) => feeStatus(f) === "confirmed");
   const outstandingFees = recurringFees.filter((f) => feeStatus(f) !== "confirmed");
   const confirmedTotal = confirmedFees.reduce((s, f) => s + (f.categoryId ? categoryTotal(selectedMonth, f.categoryId) : Number(f.amount) || 0), 0);
@@ -1190,13 +1210,16 @@ function BudgetTracker({ household, onLogout, onRename }) {
           </div>
         ))}
         {salaireCat && (
-          <div className="row">
-            <span style={{ fontStyle: "italic", color: "var(--ink-soft)" }} title={`Total automatique des transactions catégorisées « ${salaireCat.name} »`}>
-              {salaireCat.name} (auto)
-            </span>
-            <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--ink-soft)" }}>{fmt(salaryFromTransactions(selectedMonth))}</span>
-            <span></span>
-          </div>
+          <React.Fragment>
+            <div className="row" style={{ cursor: "pointer" }} onClick={() => setOpenAutoDetails((o) => ({ ...o, salaire: !o.salaire }))}>
+              <span style={{ fontStyle: "italic", color: "var(--ink-soft)" }} title={`Total automatique des transactions catégorisées « ${salaireCat.name} » — cliquer pour voir le détail`}>
+                {openAutoDetails.salaire ? "▾" : "▸"} {salaireCat.name} (auto)
+              </span>
+              <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--ink-soft)" }}>{fmt(salaryFromTransactions(selectedMonth))}</span>
+              <span></span>
+            </div>
+            {openAutoDetails.salaire && renderAutoDetails(salaireCat.id, -1)}
+          </React.Fragment>
         )}
         <button className="add-line" onClick={() => addIncomeLine(selectedMonth)}>+ Ajouter une ligne de revenu</button>
         <div className="totals-row"><span>Total revenus</span><span>{fmt(curIncomeTotal)}</span></div>
@@ -1209,12 +1232,15 @@ function BudgetTracker({ household, onLogout, onRename }) {
           <input type="number" value={curManualSavings} onChange={(e) => updateSavings(selectedMonth, parseFloat(e.target.value) || 0)} />
         </div>
         {epargneCat && (
-          <div className="row" style={{ gridTemplateColumns: "1fr 140px" }}>
-            <span style={{ fontStyle: "italic", color: "var(--ink-soft)" }} title={`Total automatique des transactions catégorisées « ${epargneCat.name} »`}>
-              {epargneCat.name} (auto)
-            </span>
-            <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--ink-soft)" }}>{fmt(curSavingsFromCategory)}</span>
-          </div>
+          <React.Fragment>
+            <div className="row" style={{ gridTemplateColumns: "1fr 140px", cursor: "pointer" }} onClick={() => setOpenAutoDetails((o) => ({ ...o, epargne: !o.epargne }))}>
+              <span style={{ fontStyle: "italic", color: "var(--ink-soft)" }} title={`Total automatique des transactions catégorisées « ${epargneCat.name} » — cliquer pour voir le détail`}>
+                {openAutoDetails.epargne ? "▾" : "▸"} {epargneCat.name} (auto)
+              </span>
+              <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--ink-soft)" }}>{fmt(curSavingsFromCategory)}</span>
+            </div>
+            {openAutoDetails.epargne && renderAutoDetails(epargneCat.id, 1)}
+          </React.Fragment>
         )}
         <div className="totals-row"><span>Total épargne</span><span>{fmt(curSavings)}</span></div>
       </div>
