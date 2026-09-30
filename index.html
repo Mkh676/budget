@@ -665,8 +665,14 @@ function BudgetTracker({ household, onLogout, onRename }) {
     setTransactions((t) => ({ ...t, [id]: recurring }));
     setSelectedMonth(id);
   };
+  // Deleting a tab deletes its transactions too (before, they stayed hidden in
+  // the data and blocked re-importing the same lines). "Annuler" restores both.
   const removeMonth = (id) => {
-    setMonths((ms) => ms.filter((m) => m.id !== id));
+    const m = months.find((x) => x.id === id);
+    const n = (transactions[id] || []).length;
+    if (!window.confirm(`Supprimer l'onglet « ${m?.label || ""} »${n ? ` et ses ${n} transaction(s)` : ""} ? (Annulable avec « ↶ Annuler »)`)) return;
+    setMonths((ms) => ms.filter((x) => x.id !== id));
+    setTransactions((t) => { const { [id]: _, ...rest } = t; return rest; });
     if (selectedMonth === id) { const rest = months.filter((m) => m.id !== id); if (rest.length) setSelectedMonth(rest[0].id); }
   };
   const [editingMonthId, setEditingMonthId] = useState(null);
@@ -789,7 +795,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const categoryExists = (id) => !!id && categories.some((c) => c.id === id);
   const buildHistoryIndex = () => {
     const counts = {}; // { [key]: { [catId]: n } }
-    for (const txs of Object.values(transactions)) {
+    for (const txs of months.map((m) => transactions[m.id])) {
       for (const tx of txs || []) {
         if (!tx.categoryId) continue;
         const key = merchantKey(tx.label);
@@ -917,9 +923,11 @@ function BudgetTracker({ household, onLogout, onRename }) {
     // Pass 1 matches exact bank data; pass 2 catches small changes between two
     // exports (e.g. a pending card payment whose date or label settled
     // differently): same amount, same merchant, dates within 3 days.
+    // Only month tabs that still exist count: a deleted tab's rows are gone
+    // from view, so the same lines must be importable again.
     const pool = [];
-    for (const txs of Object.values(transactions)) {
-      for (const tx of txs || []) {
+    for (const m of months) {
+      for (const tx of transactions[m.id] || []) {
         pool.push({ sig: tx.importSig || signatureOf(tx), amount: Number(tx.amount) || 0, key: merchantKey(tx.label), day: dateToDayNumber(tx.date), claimed: false });
       }
     }
@@ -1005,12 +1013,54 @@ function BudgetTracker({ household, onLogout, onRename }) {
       }
       const dupCount = parsed.filter((r) => r.duplicate).length;
       const newRows = parsed.filter((r) => !r.duplicate).map(({ duplicate, ...r }) => r);
+
+      // Each row goes to the month tab matching ITS date (a statement from
+      // 28/08 to 30/09 fills both August and September, whichever tab is
+      // open). A missing month tab is created. Rows without a readable date
+      // go to the open tab.
+      const tabForKey = {};
+      for (const m of months) {
+        const key = monthSortKey(m);
+        if (key && !tabForKey[key]) tabForKey[key] = m.id;
+      }
+      const newTabs = [];
+      const byMonth = {}; // { [monthId]: rows }
+      for (const row of newRows) {
+        const dayNum = dateToDayNumber(row.date);
+        let monthId = targetMonth;
+        if (dayNum !== null) {
+          const d = new Date(dayNum * 86400000);
+          const key = d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0");
+          if (!tabForKey[key]) {
+            const name = MONTH_NAMES_FR[d.getUTCMonth()];
+            const tab = { id: uid("month"), label: name.charAt(0).toUpperCase() + name.slice(1) + " " + d.getUTCFullYear(), date: key + "-01" };
+            tabForKey[key] = tab.id;
+            newTabs.push(tab);
+          }
+          monthId = tabForKey[key];
+        }
+        (byMonth[monthId] = byMonth[monthId] || []).push(row);
+      }
+      if (newTabs.length) {
+        setMonths((ms) => sortMonthsChronologically([...ms, ...newTabs]));
+        setIncome((inc) => ({ ...inc, ...Object.fromEntries(newTabs.map((t) => [t.id, []])) }));
+        setSavings((sv) => ({ ...sv, ...Object.fromEntries(newTabs.map((t) => [t.id, 0])) }));
+        setActuals((a) => ({ ...a, ...Object.fromEntries(newTabs.map((t) => [t.id, {}])) }));
+      }
       // Save straight away — no in-memory-only review step, so nothing is
       // lost if the tab gets reloaded or discarded before you're done
       // reviewing. Categorize/fix rows afterward in "Transactions" below.
-      setTransactions((t) => ({ ...t, [targetMonth]: [...(t[targetMonth] || []), ...newRows] }));
+      setTransactions((t) => {
+        const next = { ...t };
+        for (const [monthId, rows] of Object.entries(byMonth)) next[monthId] = [...(next[monthId] || []), ...rows];
+        return next;
+      });
+      const labelOf = (id) => newTabs.find((t) => t.id === id)?.label || months.find((m) => m.id === id)?.label || id;
+      const perMonth = Object.entries(byMonth)
+        .map(([id, rows]) => `${rows.length} en ${labelOf(id)}${newTabs.some((t) => t.id === id) ? " (onglet créé)" : ""}`)
+        .join(", ");
       setImportSummary(
-        `${newRows.length} transaction(s) importée(s) pour ${targetLabel}` +
+        `${newRows.length} transaction(s) importée(s)` + (perMonth ? ` : ${perMonth}` : ` pour ${targetLabel}`) +
         (dupCount > 0 ? `, ${dupCount} déjà importée(s) ignorée(s)` : "") +
         (newRows.some((r) => r.categorySource === "keyword") ? `, ${newRows.filter((r) => r.categorySource === "keyword").length} catégorie(s) devinée(s) marquée(s) « ? » à vérifier` : "") +
         `. Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».`
