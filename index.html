@@ -1755,8 +1755,10 @@ function BudgetTracker({ household, onLogout, onRename }) {
   // Category bars for the selected month: state = over / near (≥ 90 %) / ok / none (no budget).
   const catRows = expenseCategories.map((c) => {
     const spent = categoryTotal(selectedMonth, c.id), budget = Number(c.budget) || 0;
-    const state = budget <= 0 ? "none" : spent > budget + 0.004 ? "over" : spent >= 0.9 * budget ? "near" : "ok";
-    const note = state === "none" ? (spent ? "hors budget" : "pas de budget") : state === "over" ? `+${fmt(Math.round(spent - budget))} au-dessus` : state === "near" ? `presque atteint · reste ${fmt(Math.round(budget - spent))}` : `reste ${fmt(Math.round(budget - spent))}`;
+    // Within 50 cents of the budget counts as exactly reached (the note would otherwise say "reste 0 €").
+    const reached = budget > 0 && Math.abs(budget - spent) < 0.5;
+    const state = budget <= 0 ? "none" : reached ? "near" : spent > budget ? "over" : spent >= 0.9 * budget ? "near" : "ok";
+    const note = state === "none" ? (spent ? "hors budget" : "pas de budget") : reached ? "budget atteint" : state === "over" ? `+${fmt(Math.round(spent - budget))} au-dessus` : state === "near" ? `presque atteint · reste ${fmt(Math.round(budget - spent))}` : `reste ${fmt(Math.round(budget - spent))}`;
     return { id: c.id, name: c.name, spent, budget, state, note, pct: budget > 0 ? Math.min(100, (spent / budget) * 100) : (spent ? 100 : 0) };
   }).filter((c) => c.spent !== 0 || c.budget > 0)
     .sort((a, b) => (a.state === "over") !== (b.state === "over") ? (a.state === "over" ? -1 : 1) : b.spent - a.spent);
@@ -1891,7 +1893,9 @@ function BudgetTracker({ household, onLogout, onRename }) {
             <span className="home-line">dépensés sur un budget de <strong style={{ color: "var(--ink)" }}>{fmt(Math.round(monthBudgetTotal))}</strong></span>
             <span className="bar-track" style={{ background: "rgba(27,30,33,0.10)" }}><span className={"bar-fill " + (curActualTotal > monthBudgetTotal ? "over" : curActualTotal >= 0.9 * monthBudgetTotal ? "near" : "")} style={{ display: "block", width: Math.min(100, monthBudgetTotal > 0 ? (curActualTotal / monthBudgetTotal) * 100 : 0) + "%" }}></span></span>
             <span style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 14, flexWrap: "wrap" }}>
-              {curActualTotal > monthBudgetTotal
+              {monthBudgetTotal > 0 && Math.abs(curActualTotal - monthBudgetTotal) < 0.5
+                ? <strong style={{ color: "var(--amber)" }}>Budget atteint</strong>
+                : curActualTotal > monthBudgetTotal
                 ? <strong style={{ color: "var(--red)" }}>Budget dépassé de {fmt(Math.round(curActualTotal - monthBudgetTotal))}</strong>
                 : <strong style={{ color: "var(--green)" }}>Il reste {fmt(Math.round(monthBudgetTotal - curActualTotal))} de budget</strong>}
               <span style={{ color: "var(--ink-soft)" }}>{overCount} poste(s) au-dessus</span>
@@ -2062,7 +2066,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
           <div className="bar-track"><div className={"bar-fill " + (curActualTotal > monthBudgetTotal ? "over" : curActualTotal >= 0.9 * monthBudgetTotal ? "near" : "")} style={{ width: Math.min(100, monthBudgetTotal > 0 ? (curActualTotal / monthBudgetTotal) * 100 : 0) + "%" }}></div></div>
           <div style={{ fontSize: 13, fontWeight: 700, color: curActualTotal > monthBudgetTotal ? "var(--red)" : "var(--green)" }}>
             {monthBudgetTotal > 0 ? Math.round((curActualTotal / monthBudgetTotal) * 100) + " % · " : ""}
-            {curActualTotal > monthBudgetTotal ? `+${fmt(Math.round(curActualTotal - monthBudgetTotal))} au-dessus` : `${fmt(Math.round(monthBudgetTotal - curActualTotal))} de marge`}
+            {Math.abs(curActualTotal - monthBudgetTotal) < 0.5 ? "budget atteint" : curActualTotal > monthBudgetTotal ? `+${fmt(Math.round(curActualTotal - monthBudgetTotal))} au-dessus` : `${fmt(Math.round(monthBudgetTotal - curActualTotal))} de marge`}
           </div>
         </div>
       </section>
