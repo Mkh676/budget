@@ -266,25 +266,11 @@
   .tx-more { width: 100%; margin-top: 14px; padding: 12px; border-radius: 10px; border: 1px solid var(--rule); background: transparent; font-size: 14px; font-weight: 600; cursor: pointer; color: var(--ink); }
   .tx-panel .add-line { margin-top: 8px; padding-left: 0; }
 
-  /* Why over budget */
-  .why-panel .panel-title { font-size: 20px; }
-  .why-sub { padding: 12px 24px 0; font-size: 14px; color: var(--ink-soft); }
-  .why-list { padding: 4px 24px 12px; }
-  .why-item { padding: 14px 0; border-bottom: 1px solid var(--rule); }
-  .why-item:last-child { border-bottom: none; }
-  .why-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-  .why-name { background: none; border: none; padding: 0; font: inherit; font-size: 16px; font-weight: 700; color: var(--ink); cursor: pointer; text-align: left; }
-  .why-name:hover { text-decoration: underline; }
-  .why-excess { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--red); white-space: nowrap; }
-  .why-share { height: 6px; border-radius: 99px; background: var(--track); margin: 8px 0 6px; overflow: hidden; }
-  .why-share > div { height: 100%; border-radius: 99px; background: var(--red); }
-  .why-detail { font-size: 13px; color: var(--ink-soft); }
-  .why-txs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-  .why-tx { display: inline-flex; gap: 8px; align-items: baseline; max-width: 100%; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--rule); background: var(--paper-alt); color: var(--ink); font-size: 13px; cursor: pointer; }
-  .why-tx:hover { border-color: var(--ink-soft); }
-  .why-tx-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .why-tx-amt { font-family: var(--font-mono); font-weight: 600; white-space: nowrap; }
-  .why-more { background: none; border: none; color: var(--gold); font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 4px; }
+  /* Summary band: categories behind an overrun */
+  .over-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--ink-soft); }
+  .over-tag { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; border: none; background: #F2DDD7; color: #7A2E1F; cursor: pointer; }
+  .over-tag:hover { background: #EBCBC2; }
+  .over-tags.narrow-only { display: none; }
 
   /* Monthly chart: months over budget + suggestions */
   .chart-hint { font-size: 12px; color: var(--ink-soft); margin: 6px 0 0; }
@@ -324,8 +310,8 @@
     .panel-title { font-size: 19px; padding: 14px 16px; }
     .row, .cat-list, .add-line, .totals-row { padding-left: 16px; padding-right: 16px; }
     .tx-body { padding: 14px 16px 8px; }
+    .over-tags.wide-only { display: none; } .over-tags.narrow-only { display: flex; grid-column: 1 / -1; }
     .om-row { grid-template-columns: minmax(0, 1fr) auto; } .om-causes { grid-column: 1 / -1; }
-    .why-sub { padding: 12px 16px 0; } .why-list { padding: 4px 16px 12px; }
     .tx-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name amt" "chip chip"; gap: 4px 10px; }
     .tx-name { grid-area: name; } .tx-amt { grid-area: amt; min-width: 0; } .tx-chip { grid-area: chip; justify-self: start; max-width: 100%; }
     .tx-edit { grid-template-columns: minmax(0, 1fr) 110px; }
@@ -1938,25 +1924,10 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const curIncomeLines = income[selectedMonth] || [];
   const curIncomeTotal = monthIncome(selectedMonth);
   const curActualTotal = monthActualTotal(selectedMonth);
-  // "Why over budget": categories above budget, spending with no budget and uncategorized
-  // spending, each with its biggest transactions. Excess minus what's left elsewhere = the overrun.
+  // Month over budget: the categories that went over, biggest first (shown as small tags in the summary band).
   const overBudget = monthBudgetTotal > 0 && curActualTotal - monthBudgetTotal >= 0.5;
-  const overReasons = (() => {
-    const txs = monthTransactions(selectedMonth);
-    const biggest = (pred) => txs.filter((t) => pred(t) && Number(t.amount) > 0).sort((a, b) => b.amount - a.amount);
-    const rows = [];
-    catRows.forEach((c) => {
-      if (c.state === "over") rows.push({ key: c.id, filter: c.id, name: c.name, excess: c.spent - c.budget, detail: `${fmt(Math.round(c.spent))} dépensés pour ${fmt(Math.round(c.budget))} prévus`, txs: biggest((t) => t.categoryId === c.id) });
-      else if (overBudget && c.state === "none" && c.spent >= 0.5) rows.push({ key: c.id, filter: c.id, name: c.name, excess: c.spent, detail: "pas de budget prévu pour cette catégorie", txs: biggest((t) => t.categoryId === c.id) });
-    });
-    const unc = uncategorizedSpent(selectedMonth);
-    if (overBudget && unc >= 0.5) rows.push({ key: "__none__", filter: "__none__", name: "Non catégorisé", excess: unc, detail: "à classer dans « Transactions »", txs: biggest((t) => !categories.some((c) => c.id === t.categoryId)) });
-    rows.sort((a, b) => b.excess - a.excess);
-    const excessTotal = rows.reduce((s, r) => s + r.excess, 0);
-    const leftover = catRows.filter((c) => c.budget > 0 && c.state !== "over").reduce((s, c) => s + Math.max(0, c.budget - c.spent), 0);
-    return { rows, excessTotal, leftover };
-  })();
-  // Jump from a reason to the transaction list, filtered on that category (and the clicked transaction open).
+  const overTop = overBudget ? catRows.filter((c) => c.state === "over").sort((a, b) => (b.spent - b.budget) - (a.spent - a.budget)).slice(0, 3) : [];
+  // Jump to the transaction list, filtered on a category (and a transaction open).
   const showInTransactions = (filter, txId) => {
     setTxQuery(""); setTxCatFilter(filter); setShowTransactions(true); setTxShowAll(true); setOpenTx(txId || null);
     setTimeout(() => { const el = document.getElementById("tx-panel"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 50);
@@ -2244,46 +2215,24 @@ function BudgetTracker({ household, onLogout, onRename }) {
             {monthBudgetTotal > 0 ? Math.round((curActualTotal / monthBudgetTotal) * 100) + " % · " : ""}
             {Math.abs(curActualTotal - monthBudgetTotal) < 0.5 ? "budget atteint" : curActualTotal > monthBudgetTotal ? `+${fmt(Math.round(curActualTotal - monthBudgetTotal))} au-dessus` : `${fmt(Math.round(monthBudgetTotal - curActualTotal))} de marge`}
           </div>
+          {overTop.length > 0 && (
+            <div className="over-tags wide-only">
+              <span>surtout</span>
+              {overTop.map((c) => (
+                <button type="button" key={c.id} className="over-tag" title="Voir les transactions" onClick={() => showInTransactions(c.id)}>{c.name} +{fmt(Math.round(c.spent - c.budget))}</button>
+              ))}
+            </div>
+          )}
         </div>
-      </section>
-
-      {overReasons.rows.length > 0 && (
-        <div className="panel why-panel">
-          <div className="panel-title">
-            {overBudget
-              ? <span>Pourquoi le budget est dépassé de <span style={{ color: "var(--red)" }}>{fmt(Math.round(curActualTotal - monthBudgetTotal))}</span></span>
-              : <span>Au-dessus du budget</span>}
-          </div>
-          <div className="why-sub">
-            {overBudget
-              ? <React.Fragment>Dépassements <strong style={{ color: "var(--red)" }}>+{fmt(Math.round(overReasons.excessTotal))}</strong>{overReasons.leftover >= 0.5 && <React.Fragment>, en partie compensés par <strong style={{ color: "var(--green)" }}>{fmt(Math.round(overReasons.leftover))}</strong> non dépensés dans les autres catégories</React.Fragment>}.</React.Fragment>
-              : <React.Fragment>Le mois reste dans le budget : les autres catégories compensent ({fmt(Math.round(overReasons.leftover))} non dépensés).</React.Fragment>}
-          </div>
-          <div className="why-list">
-            {overReasons.rows.map((r) => (
-              <div key={r.key} className="why-item">
-                <div className="why-head">
-                  <button type="button" className="why-name" onClick={() => showInTransactions(r.filter)}>{r.name}</button>
-                  <span className="why-excess">+{fmt(Math.round(r.excess))}</span>
-                </div>
-                <div className="why-share"><div style={{ width: Math.max(2, (r.excess / overReasons.excessTotal) * 100) + "%" }}></div></div>
-                <div className="why-detail">{r.detail}</div>
-                <div className="why-txs">
-                  {r.txs.slice(0, 3).map((t) => (
-                    <button type="button" key={t.id} className="why-tx" title={t.label} onClick={() => showInTransactions(r.filter, t.id)}>
-                      <span className="why-tx-name">{prettyTxLabel(t.label)}</span>
-                      <span className="why-tx-amt">{fmtCents(t.amount)}</span>
-                    </button>
-                  ))}
-                  {r.txs.length > 3 && (
-                    <button type="button" className="why-more" onClick={() => showInTransactions(r.filter)}>+ {r.txs.length - 3} autre{r.txs.length - 3 > 1 ? "s" : ""} →</button>
-                  )}
-                </div>
-              </div>
+        {overTop.length > 0 && (
+          <div className="over-tags narrow-only">
+            <span>surtout</span>
+            {overTop.map((c) => (
+              <button type="button" key={c.id} className="over-tag" onClick={() => showInTransactions(c.id)}>{c.name} +{fmt(Math.round(c.spent - c.budget))}</button>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </section>
 
       <div className="panel">
         <div className="panel-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
