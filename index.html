@@ -291,6 +291,24 @@
   .sugg-btn { padding: 7px 12px; border-radius: 8px; border: 1px solid var(--rule); background: var(--paper); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; color: var(--ink); }
   .sugg-btn:hover { border-color: var(--ink-soft); }
 
+  /* Revenus & épargne: one card, two columns */
+  .money-card { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 26px 0; }
+  .money-col { display: flex; flex-direction: column; gap: 10px; padding: 0 30px; min-width: 0; }
+  .money-col + .money-col { border-left: 1px solid var(--rule); }
+  .money-kicker { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); }
+  .money-big { font-family: var(--font-display); font-weight: 800; font-size: 56px; line-height: 1; }
+  .money-big.in { color: var(--green); } .money-big.sav { color: var(--gold); }
+  .money-lines { display: flex; flex-direction: column; margin-top: 8px; }
+  .money-line { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--rule); font-size: 14px; min-width: 0; }
+  button.money-line { width: 100%; background: none; border-top: none; border-left: none; border-right: none; cursor: pointer; text-align: left; color: var(--ink); font: inherit; font-size: 14px; }
+  .money-meta { color: var(--ink-soft); }
+  .money-amt { font-family: var(--font-mono); white-space: nowrap; }
+  .money-line > input[type="text"] { flex: 1 1 auto; min-width: 0; border: none; background: transparent; font-size: 14px; padding: 4px 0; color: var(--ink); }
+  .money-edit { display: flex; gap: 6px; align-items: center; flex: 0 0 auto; }
+  .money-edit input { width: 100px; text-align: right; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 8px; font-family: var(--font-mono); font-size: 13px; background: var(--paper); }
+  .money-card .add-line { padding: 4px 0; align-self: flex-start; }
+  .money-note { font-size: 13px; color: var(--ink-soft); }
+
   /* Phones: sections move to a bar at the bottom, summaries stack */
   @media (max-width: 720px) {
     .appbar { margin-bottom: 18px; backdrop-filter: none; background: var(--paper); }
@@ -310,6 +328,10 @@
     .panel-title { font-size: 19px; padding: 14px 16px; }
     .row, .cat-list, .add-line, .totals-row { padding-left: 16px; padding-right: 16px; }
     .tx-body { padding: 14px 16px 8px; }
+    .money-card { grid-template-columns: 1fr; padding: 20px 0; gap: 24px; }
+    .money-col { padding: 0 16px; }
+    .money-col + .money-col { border-left: none; border-top: 1px solid var(--rule); padding-top: 20px; }
+    .money-big { font-size: 44px; }
     .over-tags.wide-only { display: none; } .over-tags.narrow-only { display: flex; grid-column: 1 / -1; }
     .om-row { grid-template-columns: minmax(0, 1fr) auto; } .om-causes { grid-column: 1 / -1; }
     .tx-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name amt" "chip chip"; gap: 4px 10px; }
@@ -840,6 +862,9 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const [openTx, setOpenTx] = useState(null); // transaction whose edit form is open
   const [txShowAll, setTxShowAll] = useState(false);
   const [openAutoDetails, setOpenAutoDetails] = useState({});
+  // Revenus & épargne card: lines at 0 are hidden, except ones just added.
+  const [freshIncome, setFreshIncome] = useState({});
+  const [manualSavingsOpen, setManualSavingsOpen] = useState({}); // { [monthId]: true }
   const [view, setView] = useState("home"); // "home" | "depenses" | "epargne"
   const [editBudgets, setEditBudgets] = useState(false); // categories: bars (false) or the editable table (true)
   const [selectedAccount, setSelectedAccount] = useState(null); // savings account shown on the Épargne page // { salaire: bool, epargne: bool } — detail list under the "(auto)" lines
@@ -1132,7 +1157,11 @@ function BudgetTracker({ household, onLogout, onRename }) {
     if (label && label.trim()) setMonths((ms) => ms.map((m) => (m.id === id ? { ...m, label: label.trim() } : m)));
   };
   const updateIncomeLine = (m, lineId, field, v) => setIncome((inc) => ({ ...inc, [m]: (inc[m] || []).map((l) => (l.id === lineId ? { ...l, [field]: v } : l)) }));
-  const addIncomeLine = (m) => setIncome((inc) => ({ ...inc, [m]: [...(inc[m] || []), { id: uid("inc"), label: "Nouveau revenu", amount: 0 }] }));
+  const addIncomeLine = (m) => {
+    const id = uid("inc");
+    setIncome((inc) => ({ ...inc, [m]: [...(inc[m] || []), { id, label: "Nouveau revenu", amount: 0 }] }));
+    setFreshIncome((f) => ({ ...f, [id]: true })); // stays visible while its amount is still 0
+  };
   const removeIncomeLine = (m, lineId) => setIncome((inc) => ({ ...inc, [m]: (inc[m] || []).filter((l) => l.id !== lineId) }));
   const updateSavings = (m, v) => setSavings((s) => ({ ...s, [m]: v }));
 
@@ -1960,7 +1989,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const renderAutoDetails = (catId, sign) => {
     const txs = monthTransactions(selectedMonth).filter((t) => t.categoryId === catId);
     return (
-      <div style={{ padding: "2px 16px 10px 34px", fontSize: 12, color: "var(--ink-soft)" }}>
+      <div style={{ padding: "2px 0 10px 16px", fontSize: 12, color: "var(--ink-soft)" }}>
         {txs.length === 0 ? (
           <div>Aucune transaction dans cette catégorie ce mois-ci.</div>
         ) : txs.map((t) => (
@@ -2348,50 +2377,74 @@ function BudgetTracker({ household, onLogout, onRename }) {
         )}
       </div>
 
-      <div className="panel">
-        <div className="panel-title">Revenus — {curMonthLabel}</div>
-        {curIncomeLines.map((l) => (
-          <div className="row" key={l.id}>
-            <input type="text" value={l.label} onChange={(e) => updateIncomeLine(selectedMonth, l.id, "label", e.target.value)} />
-            <input type="number" value={l.amount} onChange={(e) => updateIncomeLine(selectedMonth, l.id, "amount", parseFloat(e.target.value) || 0)} />
-            <button className="icon-btn" onClick={() => removeIncomeLine(selectedMonth, l.id)}>✕</button>
+      {(() => {
+        const countIn = (catId) => monthTransactions(selectedMonth).filter((t) => t.categoryId === catId).length;
+        const plural = (n, w) => `${n} ${w}${n > 1 ? "s" : ""}`;
+        const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+        const shownIncome = curIncomeLines.filter((l) => (Number(l.amount) || 0) !== 0 || freshIncome[l.id]);
+        const showManualSavings = curManualSavings !== 0 || manualSavingsOpen[selectedMonth];
+        const savedPct = curIncomeTotal > 0 ? Math.round((curSavings / curIncomeTotal) * 100) : null;
+        return (
+          <div className="panel money-card">
+            <div className="money-col">
+              <span className="money-kicker">Revenus · {curMonthLabel}</span>
+              <span className="money-big in">{fmt(Math.round(curIncomeTotal))}</span>
+              <div className="money-lines">
+                {salaireCat && (
+                  <React.Fragment>
+                    <button type="button" className="money-line auto" onClick={() => setOpenAutoDetails((o) => ({ ...o, salaire: !o.salaire }))}
+                      title={`Total automatique des transactions catégorisées « ${salaireCat.name} »`}>
+                      <span>{openAutoDetails.salaire ? "▾" : "▸"} {cap(salaireCat.name)} <span className="money-meta">· {plural(countIn(salaireCat.id), "virement")}, auto</span></span>
+                      <span className="money-amt">{fmt(salaryFromTransactions(selectedMonth))}</span>
+                    </button>
+                    {openAutoDetails.salaire && renderAutoDetails(salaireCat.id, -1)}
+                  </React.Fragment>
+                )}
+                {shownIncome.map((l) => (
+                  <div className="money-line" key={l.id}>
+                    <input type="text" aria-label="Libellé du revenu" value={l.label} onChange={(e) => updateIncomeLine(selectedMonth, l.id, "label", e.target.value)} />
+                    <span className="money-edit">
+                      <input type="number" aria-label="Montant" value={l.amount} onChange={(e) => updateIncomeLine(selectedMonth, l.id, "amount", parseFloat(e.target.value) || 0)} />
+                      <button className="icon-btn" aria-label="Supprimer" onClick={() => removeIncomeLine(selectedMonth, l.id)}>✕</button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <button className="add-line" onClick={() => addIncomeLine(selectedMonth)}>+ Ajouter un revenu</button>
+            </div>
+            <div className="money-col">
+              <span className="money-kicker">Épargné · {curMonthLabel}</span>
+              <span className="money-big sav">{fmt(Math.round(curSavings))}</span>
+              <div className="money-lines">
+                {epargneCat && (
+                  <React.Fragment>
+                    <button type="button" className="money-line auto" onClick={() => setOpenAutoDetails((o) => ({ ...o, epargne: !o.epargne }))}
+                      title={`Total automatique des transactions catégorisées « ${epargneCat.name} »`}>
+                      <span>{openAutoDetails.epargne ? "▾" : "▸"} Virements épargne <span className="money-meta">· {plural(countIn(epargneCat.id), "virement")}, auto</span></span>
+                      <span className="money-amt">{fmt(curSavingsFromCategory)}</span>
+                    </button>
+                    {openAutoDetails.epargne && renderAutoDetails(epargneCat.id, 1)}
+                  </React.Fragment>
+                )}
+                {showManualSavings && (
+                  <div className="money-line">
+                    <span>Montant manuel</span>
+                    <span className="money-edit">
+                      <input type="number" aria-label="Montant épargné (manuel)" value={curManualSavings} autoFocus={curManualSavings === 0}
+                        onChange={(e) => updateSavings(selectedMonth, parseFloat(e.target.value) || 0)} />
+                      <button className="icon-btn" aria-label="Retirer" onClick={() => { updateSavings(selectedMonth, 0); setManualSavingsOpen((o) => ({ ...o, [selectedMonth]: false })); }}>✕</button>
+                    </span>
+                  </div>
+                )}
+              </div>
+              {!showManualSavings && (
+                <button className="add-line" onClick={() => setManualSavingsOpen((o) => ({ ...o, [selectedMonth]: true }))}>+ Ajouter un montant manuel</button>
+              )}
+              {savedPct !== null && curSavings > 0 && <span className="money-note">{savedPct} % des revenus mis de côté</span>}
+            </div>
           </div>
-        ))}
-        {salaireCat && (
-          <React.Fragment>
-            <div className="row" style={{ cursor: "pointer" }} onClick={() => setOpenAutoDetails((o) => ({ ...o, salaire: !o.salaire }))}>
-              <span style={{ fontStyle: "italic", color: "var(--ink-soft)" }} title={`Total automatique des transactions catégorisées « ${salaireCat.name} » — cliquer pour voir le détail`}>
-                {openAutoDetails.salaire ? "▾" : "▸"} {salaireCat.name} (auto)
-              </span>
-              <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--ink-soft)" }}>{fmt(salaryFromTransactions(selectedMonth))}</span>
-              <span></span>
-            </div>
-            {openAutoDetails.salaire && renderAutoDetails(salaireCat.id, -1)}
-          </React.Fragment>
-        )}
-        <button className="add-line" onClick={() => addIncomeLine(selectedMonth)}>+ Ajouter une ligne de revenu</button>
-        <div className="totals-row"><span>Total revenus</span><span>{fmt(curIncomeTotal)}</span></div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-title">Épargne mise de côté</div>
-        <div className="row" style={{ gridTemplateColumns: "1fr 140px" }}>
-          <span>Montant épargné ce mois-ci (manuel)</span>
-          <input type="number" value={curManualSavings} onChange={(e) => updateSavings(selectedMonth, parseFloat(e.target.value) || 0)} />
-        </div>
-        {epargneCat && (
-          <React.Fragment>
-            <div className="row" style={{ gridTemplateColumns: "1fr 140px", cursor: "pointer" }} onClick={() => setOpenAutoDetails((o) => ({ ...o, epargne: !o.epargne }))}>
-              <span style={{ fontStyle: "italic", color: "var(--ink-soft)" }} title={`Total automatique des transactions catégorisées « ${epargneCat.name} » — cliquer pour voir le détail`}>
-                {openAutoDetails.epargne ? "▾" : "▸"} {epargneCat.name} (auto)
-              </span>
-              <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--ink-soft)" }}>{fmt(curSavingsFromCategory)}</span>
-            </div>
-            {openAutoDetails.epargne && renderAutoDetails(epargneCat.id, 1)}
-          </React.Fragment>
-        )}
-        <div className="totals-row"><span>Total épargne</span><span>{fmt(curSavings)}</span></div>
-      </div>
+        );
+      })()}
 
       <div className="panel">
         <div className="panel-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setShowRecurringFees((v) => !v)}>
