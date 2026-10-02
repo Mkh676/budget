@@ -630,23 +630,6 @@ function emptyBudgetDoc() {
 }
 
 // ---------- Charts ----------
-function BarChartCanvas({ data }) {
-  const canvasRef = useRef(null); const chartRef = useRef(null);
-  useEffect(() => {
-    if (chartRef.current) chartRef.current.destroy();
-    chartRef.current = new Chart(canvasRef.current, {
-      type: "bar",
-      data: { labels: data.map((d) => d.name), datasets: [
-        { label: "Budget", data: data.map((d) => d.Budget), backgroundColor: "#DDD9CE", borderRadius: 4 },
-        { label: "Réel", data: data.map((d) => d.Réel), backgroundColor: "#4F7394", borderRadius: 4 },
-      ]},
-      options: { responsive: true, plugins: { legend: { labels: { font: { family: "Instrument Sans", size: 12 } } } },
-        scales: { x: { ticks: { font: { family: "IBM Plex Mono", size: 9 }, maxRotation: 60, minRotation: 45 } }, y: { ticks: { font: { family: "IBM Plex Mono", size: 10 } } } } },
-    });
-    return () => chartRef.current && chartRef.current.destroy();
-  }, [data]);
-  return <canvas ref={canvasRef} height="110"></canvas>;
-}
 // Savings account balance at the end of each month.
 function SavingsBalanceChart({ data }) {
   const canvasRef = useRef(null); const chartRef = useRef(null);
@@ -1861,7 +1844,6 @@ function BudgetTracker({ household, onLogout, onRename }) {
     setEditingName(false);
   };
 
-  const barData = expenseCategories.map((c) => ({ name: c.name.length > 14 ? c.name.slice(0, 13) + "…" : c.name, Budget: Number(c.budget) || 0, Réel: categoryTotal(selectedMonth, c.id) }));
   const sortedMonths = sortMonthsChronologically(months);
   const curIdx = sortedMonths.findIndex((m) => m.id === selectedMonth);
   // Category bars for the selected month: state = over (red) / reached (blue) / near (≥ 90 %) and ok (green) / none (no budget).
@@ -2723,7 +2705,6 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
 
       <div className="charts">
-        <div className="chart-box"><p className="chart-title">Budget vs. réel par catégorie</p><BarChartCanvas data={barData} /></div>
         <div className="chart-box">
           <p className="chart-title">Dépenses par mois (hors épargne)</p>
           <MonthlySpendChart data={spendData} budget={monthBudgetTotal} selectedName={curMonthLabel}
