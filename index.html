@@ -35,6 +35,10 @@
   .btn-link { background: none; border: none; color: var(--gold); font-family: var(--font-mono); font-size: 12px; cursor: pointer; padding: 0; margin-top: 12px; text-decoration: underline; }
   .err { color: var(--red); font-size: 12px; margin: 8px 0 0; }
   .msg { color: var(--green); font-size: 12px; margin: 8px 0 0; }
+  .lang-switch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--rule); border-radius: 999px; background: var(--paper); flex: 0 0 auto; }
+  .lang-switch button { font-family: var(--font-body); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; padding: 4px 9px; border: none; border-radius: 999px; background: transparent; color: var(--ink-soft); cursor: pointer; }
+  .lang-switch button.active { background: var(--sand); color: var(--ink); }
+  .auth-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
   .toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 50; background: var(--ink); color: var(--paper); padding: 10px 18px; border-radius: 999px; font-size: 14px; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,0.15); }
   .tab-switch { display: flex; gap: 8px; margin-bottom: 18px; }
   .tab-switch button { flex: 1; font-family: var(--font-mono); font-size: 12px; padding: 8px; border: 1px solid var(--rule); background: var(--paper); cursor: pointer; border-radius: 4px; }
@@ -355,16 +359,336 @@ const SUPABASE_URL = "https://qixfytwxesdrzoecpjga.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpeGZ5dHd4ZXNkcnpvZWNwamdhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg3NjMzNjMsImV4cCI6MjEwNDMzOTM2M30.oPzhnAwacmiSKLMNs5UK07eWgHziQY0Skz2sSn3oYKQ";
 // =========================================================================
 
+// ---------- Language (FR / EN) ----------
+// Interface text is written in French and looked up in EN when English is chosen.
+// t("Il reste {amt}", { amt }) fills {placeholders}. Data the household typed
+// (category names, bank labels, month tab names) is shown as is, except month
+// names in tab labels like "Septembre 2026", which are translated for display.
+let LANG = (() => { try { return localStorage.getItem("budget:lang") === "en" ? "en" : "fr"; } catch (e) { return "fr"; } })();
+const LOCALE = () => (LANG === "en" ? "en-GB" : "fr-FR");
+function t(fr, vars) {
+  let s = (LANG === "en" && EN[fr]) || fr;
+  if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? vars[k] : m));
+  return s;
+}
+const MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+// Month name for display: "Septembre" / "September".
+function monthName(idx) {
+  if (LANG === "en") return MONTHS_EN[idx];
+  const n = MONTH_NAMES_FR[idx]; return n.charAt(0).toUpperCase() + n.slice(1);
+}
+// A month tab label for display: "Septembre 2026" -> "September 2026" in English; other labels unchanged.
+function displayMonth(label) {
+  if (LANG !== "en" || !label) return label || "";
+  const m = label.trim().match(/^(\S+)\s+(\d{4})$/);
+  if (!m) return label;
+  const idx = MONTH_NAMES_FR.indexOf(m[1].toLowerCase());
+  return idx === -1 ? label : MONTHS_EN[idx] + " " + m[2];
+}
+// A month inside a sentence: "en août 2026" (lower case in French) / "in August 2026".
+const monthInText = (label) => (LANG === "en" ? displayMonth(label) : (label || "").toLowerCase());
+const EN = {
+  // Login, password, household
+  "Ce lien a expiré ou a déjà été utilisé. Demandez un nouveau lien ci-dessous.": "This link has expired or was already used. Ask for a new link below.",
+  "Si un compte existe pour cette adresse, un e-mail vient d'être envoyé avec un lien pour choisir un nouveau mot de passe. Pensez à regarder dans les spams.": "If an account exists for this address, an e-mail has been sent with a link to choose a new password. Check your spam folder too.",
+  "E-mail ou mot de passe incorrect.": "Wrong e-mail or password.",
+  "Compte créé. Vérifiez votre e-mail si une confirmation est requise, puis connectez-vous.": "Account created. Check your e-mail if a confirmation is required, then sign in.",
+  "Budget du foyer": "Household budget",
+  "Connectez-vous pour accéder au budget partagé": "Sign in to access the shared budget",
+  "Se connecter": "Sign in",
+  "Créer un compte": "Create an account",
+  "Entrez votre e-mail : vous recevrez un lien pour choisir un nouveau mot de passe.": "Enter your e-mail: you'll receive a link to choose a new password.",
+  "E-mail": "E-mail",
+  "Mot de passe": "Password",
+  "Envoyer le lien": "Send the link",
+  "Créer le compte": "Create the account",
+  "Mot de passe oublié ?": "Forgot password?",
+  "← Retour à la connexion": "← Back to sign in",
+  "Les deux mots de passe ne sont pas identiques.": "The two passwords don't match.",
+  "Nouveau mot de passe": "New password",
+  "Choisissez un nouveau mot de passe pour votre compte.": "Choose a new password for your account.",
+  "Confirmer": "Confirm",
+  "Enregistrer le mot de passe": "Save the password",
+  "Code d'invitation introuvable.": "Invite code not found.",
+  "Votre foyer": "Your household",
+  "Créez un foyer ou rejoignez celui d'un proche": "Create a household or join someone else's",
+  "Créer un foyer": "Create a household",
+  "Rejoindre avec un code": "Join with a code",
+  "Nom du foyer": "Household name",
+  "ex: Famille Massard": "e.g. The Smith family",
+  "Créer": "Create",
+  "Code d'invitation": "Invite code",
+  "ex: a1b2c3d4": "e.g. a1b2c3d4",
+  "Rejoindre": "Join",
+  "Chargement…": "Loading…",
+  "Chargement du budget…": "Loading the budget…",
+  "✓ Mot de passe modifié.": "✓ Password changed.",
+  "Impossible de renommer le foyer : ": "Couldn't rename the household: ",
+  "Langue": "Language",
+  // App bar
+  "Cliquer pour renommer le foyer": "Click to rename the household",
+  "budget du foyer": "household budget",
+  "Accueil": "Home",
+  "Dépenses": "Spending",
+  "Épargne": "Savings",
+  "Enregistrement…": "Saving…",
+  "⚠ Erreur d'enregistrement": "⚠ Save error",
+  "✓ Enregistré": "✓ Saved",
+  "Annuler la dernière modification (Ctrl+Z / ⌘Z)": "Undo the last change (Ctrl+Z / ⌘Z)",
+  "↶ Annuler": "↶ Undo",
+  "Code :": "Code:",
+  "Se déconnecter": "Sign out",
+  "Fermer ✕": "Close ✕",
+  // Home
+  "Bonjour.": "Hello.",
+  "Bonsoir.": "Good evening.",
+  "Voici {m}.": "Here's {m}.",
+  "↑ Importer un relevé": "↑ Import a statement",
+  "+ Ajouter une dépense": "+ Add an expense",
+  "Dépenses · {m}": "Spending · {m}",
+  "Ouvrir →": "Open →",
+  "dépensés sur un budget de": "spent out of a budget of",
+  "Budget atteint": "Budget reached",
+  "Budget dépassé de {amt}": "Over budget by {amt}",
+  "Il reste {amt} de budget": "{amt} of budget left",
+  "{n} poste(s) au-dessus": "Over budget: {n}",
+  "Revenus": "Income",
+  "Épargné": "Saved",
+  "Reste": "Left",
+  "Épargne · {n} compte(s)": "Savings · {n} account(s)",
+  "en {m} sur {acc}": "in {m} on {acc}",
+  "Total de vos comptes d'épargne": "Total of your savings accounts",
+  "Ajoutez vos comptes d'épargne pour suivre leur solde": "Add your savings accounts to follow their balance",
+  "à compléter": "to fill in",
+  // Savings page
+  "Comptes d'épargne": "Savings accounts",
+  "+ Compte": "+ Account",
+  "Total épargne": "Total savings",
+  "Importer le relevé PDF (LCL) ou l'export CSV d'un compte d'épargne : les opérations et le solde sont lus automatiquement": "Import a savings account's PDF statement (LCL) or CSV export: operations and balance are read automatically",
+  "↑ Importer un relevé (PDF ou CSV)": "↑ Import a statement (PDF or CSV)",
+  "Aucun compte d'épargne pour l'instant. Cliquez sur « + Compte » pour en créer un et saisir son solde chaque mois, ou importez le relevé d'un compte.": "No savings account yet. Click \"+ Account\" to create one and type its balance each month, or import an account's statement.",
+  "saisie manuelle": "typed by hand",
+  "importé": "imported",
+  "fin {m}": "end of {m}",
+  "Saisissez un premier solde ci-dessous": "Type a first balance below",
+  "ce mois": "this month",
+  "depuis {m}": "since {m}",
+  "✓ Solde lu sur le relevé": "✓ Balance read from the statement",
+  "✎ Renommer le compte": "✎ Rename the account",
+  "✕ Supprimer le compte": "✕ Delete the account",
+  "Comment le mettre à jour": "How to update it",
+  "Tapez le solde de fin de mois dans le tableau ci-dessous, ou importez le relevé PDF / CSV du compte : les opérations et le solde seront lus automatiquement.": "Type the end-of-month balance in the table below, or import the account's PDF / CSV statement: operations and balance will be read automatically.",
+  "Mois par mois": "Month by month",
+  "Mois": "Month",
+  "Solde fin de mois": "End-of-month balance",
+  "Variation": "Change",
+  "Solde {m}": "Balance {m}",
+  "Entrées": "In",
+  "Sorties": "Out",
+  "dont intérêts": "of which interest",
+  "Saisissez le solde à la fin de chaque mois. Les mois sont ceux de « Dépenses » : ajouter un mois là-bas l'ajoute ici.": "Type the balance at the end of each month. The months are those of \"Spending\": adding a month there adds it here.",
+  "Pour mettre à jour ce compte, importez un relevé plus récent : seules les nouvelles opérations sont ajoutées.": "To update this account, import a more recent statement: only new operations are added.",
+  "Le fichier ne contient pas de colonne de solde : le solde est calculé en additionnant les opérations à partir de 0.": "The file has no balance column: the balance is computed by adding up the operations from 0.",
+  "Solde : {amt}": "Balance: {amt}",
+  // Spending page: month bar & summary
+  "Mois précédent": "Previous month",
+  "Choisir le mois": "Choose the month",
+  "Mois suivant": "Next month",
+  "+ Ajouter un mois": "+ Add a month",
+  "✎ Renommer": "✎ Rename",
+  "✕ Supprimer": "✕ Delete",
+  "Importer un relevé CSV du compte courant (les lignes vont dans le mois de leur date)": "Import a current-account CSV statement (each line goes to the month of its date)",
+  "Résumé de {m}": "Summary of {m}",
+  "Reste à la fin du mois": "Left at the end of the month",
+  "revenus − dépenses − épargne": "income − spending − savings",
+  "Dépensé / budget": "Spent / budget",
+  "budget atteint": "budget reached",
+  "+{amt} au-dessus": "+{amt} over",
+  "{amt} de marge": "{amt} to spare",
+  "surtout": "mainly",
+  "Voir les transactions": "See the transactions",
+  // Categories
+  "Par catégorie": "By category",
+  "✓ Terminé": "✓ Done",
+  "✎ Modifier les budgets": "✎ Edit budgets",
+  "Catégorie": "Category",
+  "Budget mensuel": "Monthly budget",
+  "Réel ({m})": "Actual ({m})",
+  "Écart": "Difference",
+  "Glisser pour réordonner": "Drag to reorder",
+  "Monter": "Move up",
+  "Descendre": "Move down",
+  "{pct}% des dépenses du mois": "{pct}% of the month's spending",
+  "{pct}% du budget": "{pct}% of budget",
+  "Dépenses sans catégorie — à trier dans « Transactions ». Elles comptent dans le total réel.": "Spending with no category — sort it in \"Transactions\". It counts in the actual total.",
+  "Non catégorisé (à trier)": "Uncategorized (to sort)",
+  "Total": "Total",
+  "+ Ajouter une catégorie": "+ Add a category",
+  "Le montant « Réel » est calculé automatiquement à partir des transactions.": "The \"Actual\" amount is computed automatically from the transactions.",
+  " Salaire et Épargne n'apparaissent pas ici : voir « Revenus » et « Épargné ».": " Salary and Savings don't appear here: see \"Income\" and \"Saved\".",
+  "Compté dans le total — classez-les dans « Transactions »": "Counted in the total — sort them in \"Transactions\"",
+  "Aucune dépense ce mois-ci pour l'instant.": "No spending this month yet.",
+  "hors budget": "no budget",
+  "pas de budget": "no budget",
+  "presque atteint · reste {amt}": "almost reached · {amt} left",
+  "reste {amt}": "{amt} left",
+  "Non catégorisé": "Uncategorized",
+  // Income & savings card
+  "virement": "transfer",
+  "auto": "auto",
+  "Revenus · {m}": "Income · {m}",
+  "Épargné · {m}": "Saved · {m}",
+  "Total automatique des transactions catégorisées « {cat} »": "Automatic total of the transactions in \"{cat}\"",
+  "Libellé du revenu": "Income label",
+  "Montant": "Amount",
+  "Supprimer": "Delete",
+  "+ Ajouter un revenu": "+ Add income",
+  "Virements épargne": "Savings transfers",
+  "Montant manuel": "Manual amount",
+  "Montant épargné (manuel)": "Amount saved (manual)",
+  "Retirer": "Remove",
+  "+ Ajouter un montant manuel": "+ Add a manual amount",
+  "{pct} % des revenus mis de côté": "{pct}% of income set aside",
+  "Aucune transaction dans cette catégorie ce mois-ci.": "No transaction in this category this month.",
+  // Recurring fees
+  "Charges récurrentes (prélèvements prévus) — {n}": "Recurring charges (expected direct debits) — {n}",
+  "Masquer ▲": "Hide ▲",
+  "Voir / modifier ▼": "View / edit ▼",
+  "Voir ▼": "View ▼",
+  "Confirmé — transaction trouvée dans « {cat} » ce mois-ci": "Confirmed — transaction found in \"{cat}\" this month",
+  "Le jour est passé mais aucune transaction trouvée dans cette catégorie — pas encore importée, ou en retard": "The day has passed but no transaction was found in this category — not imported yet, or late",
+  "Pas encore dû ce mois-ci": "Not due yet this month",
+  "Pas encore de transaction correspondante ce mois-ci": "No matching transaction this month yet",
+  "— Catégorie —": "— Category —",
+  "le": "on day",
+  "+ Ajouter une charge récurrente": "+ Add a recurring charge",
+  "confirmée(s) par une vraie transaction ({n})": "confirmed by a real transaction ({n})",
+  "pas encore vue(s) ({n}).": "not seen yet ({n}).",
+  "Dès qu'une transaction apparaît dans la catégorie liée (import ou saisie manuelle), la charge passe automatiquement en « confirmé ».": "As soon as a transaction appears in the linked category (import or typed by hand), the charge switches to \"confirmed\" automatically.",
+  // Transactions
+  "Transactions": "Transactions",
+  "{n} ce mois": "{n} this month",
+  "Sans date": "No date",
+  "Récurrente": "Recurring",
+  "Sans libellé": "No label",
+  "Aucune catégorie": "No category",
+  "Sans catégorie": "No category",
+  "Date": "Date",
+  "Libellé": "Label",
+  "libellé": "label",
+  "Positif = dépense, négatif = argent reçu": "Positive = spending, negative = money received",
+  "— Non catégorisé —": "— Uncategorized —",
+  "+ Nouvelle catégorie…": "+ New category…",
+  "La catégorie sera retenue pour ce marchand": "The category will be remembered for this merchant",
+  "✓ Confirmer « {cat} »": "✓ Confirm \"{cat}\"",
+  "Simple repère pour retrouver les dépenses qui reviennent chaque mois (filtre « Récurrentes »)": "Just a marker to find the expenses that come back every month (\"Recurring\" filter)",
+  "Marquer récurrente": "Mark as recurring",
+  "Fermer": "Close",
+  "Montant positif = dépense, négatif = argent reçu.": "Positive amount = spending, negative = money received.",
+  "Prélèvement — pas encore dans vos charges récurrentes.": "Direct debit — not in your recurring charges yet.",
+  "+ Ajouter comme charge récurrente": "+ Add as a recurring charge",
+  "Rechercher une transaction": "Search for a transaction",
+  "Rechercher : mot-clé, 42, 42,10, >100, 50-100…": "Search: keyword, 42, 42.10, >100, 50-100…",
+  "Mot-clé dans le libellé, ou montant : 42 (42,00 à 42,99), 42,10 (exact), >100, <20, 50-100": "Keyword in the label, or amount: 42 (42.00 to 42.99), 42.10 (exact), >100, <20, 50-100",
+  "Toutes": "All",
+  "À vérifier": "To check",
+  "Récurrentes": "Recurring",
+  "Filtrer par catégorie": "Filter by category",
+  "Catégorie…": "Category…",
+  "Trier": "Sort",
+  "Tri : date (récent)": "Sort: date (newest)",
+  "Date (ancien)": "Date (oldest)",
+  "Montant (plus grand)": "Amount (largest)",
+  "Montant (plus petit)": "Amount (smallest)",
+  "Catégorie (A→Z)": "Category (A→Z)",
+  "Libellé (A→Z)": "Label (A→Z)",
+  "Réinitialiser": "Reset",
+  "{n} transaction(s) sur {total} · total {amt}": "{n} transaction(s) of {total} · total {amt}",
+  "Aucune dépense enregistrée ce mois-ci pour l'instant.": "No spending recorded this month yet.",
+  "Aucune transaction ne correspond.": "No transaction matches.",
+  "Voir les {n} transactions": "See all {n} transactions",
+  "Prélèvement": "Direct debit",
+  "Virement": "Transfer",
+  // Category sources
+  "Choisie par vous": "Chosen by you",
+  "Retenue d'après votre choix précédent pour ce marchand": "Remembered from your previous choice for this merchant",
+  "D'après une charge récurrente correspondante": "From a matching recurring charge",
+  "D'après vos mois précédents pour ce marchand": "From your previous months for this merchant",
+  "D'après la catégorie de la banque": "From the bank's category",
+  "Retrait d'espèces": "Cash withdrawal",
+  "Devinée d'après le libellé — à vérifier": "Guessed from the label — to check",
+  // Imported files
+  "Relevés importés pour {m} ({n})": "Statements imported for {m} ({n})",
+  "Aucun relevé importé pour ce mois. Chaque fichier importé est conservé ici et peut être re-téléchargé.": "No statement imported for this month. Each imported file is kept here and can be downloaded again.",
+  "{n} importée(s)": "{n} imported",
+  ", {n} déjà présente(s)": ", {n} already there",
+  "↓ Télécharger": "↓ Download",
+  "Supprimer ce fichier de l'archive": "Delete this file from the archive",
+  // Monthly chart & suggestions
+  "Dépenses par mois (hors épargne)": "Spending per month (excluding savings)",
+  "Cliquez sur un mois pour l'ouvrir.": "Click a month to open it.",
+  "Mois au-dessus du budget": "Months over budget",
+  " (sans budget)": " (no budget)",
+  "Suggestions": "Suggestions",
+  "Ajouter un budget de {amt}": "Add a budget of {amt}",
+  "Mettre le budget à {amt}": "Set the budget to {amt}",
+  "Basé sur les mois terminés. Chaque bouton modifie le budget — « Annuler » en haut permet de revenir en arrière.": "Based on finished months. Each button changes the budget — \"Undo\" at the top takes it back.",
+  "Budget dépassé de {amt} :": "Over budget by {amt}:",
+  "{label} : {amt}": "{label}: {amt}",
+  " n'a pas de budget mais revient {n} mois sur {total} (≈ {avg}/mois en moyenne).": " has no budget but comes back {n} months out of {total} (≈ {avg}/month on average).",
+  " dépasse son budget {n} mois sur {total} : {avg} en moyenne pour {budget} prévus. Soit le budget est trop bas, soit c'est le poste à surveiller.": " goes over its budget {n} months out of {total}: {avg} on average for {budget} planned. Either the budget is too low, or this is the category to watch.",
+  " : dépassement ponctuel en {m} (+{amt}), surtout « {tx} » ({txamt}). Si c'est exceptionnel, inutile de changer le budget.": ": one-off overrun in {m} (+{amt}), mainly \"{tx}\" ({txamt}). If it was exceptional, no need to change the budget.",
+  " est toujours bien en dessous : {avg} en moyenne pour {budget} prévus. Ce budget pourrait financer un poste qui dépasse.": " is always well under: {avg} on average for {budget} planned. This budget could fund a category that goes over.",
+  // Prompts, confirmations, alerts, import messages
+  "Nom du nouveau mois": "Name of the new month",
+  "Nouveau nom du mois": "New name for the month",
+  "Êtes-vous sûr de vouloir supprimer l'onglet « {m} » ?": "Are you sure you want to delete the tab \"{m}\"?",
+  "Tout ce qui lui est lié sera supprimé : {n} transaction(s), revenus et épargne du mois": "Everything linked to it will be deleted: {n} transaction(s), the month's income and savings",
+  ", et {n} relevé(s) importé(s) (définitif)": ", and {n} imported statement(s) (permanent)",
+  "(Vous pourrez encore revenir en arrière avec « ↶ Annuler » tant que la page reste ouverte.)": "(You can still go back with \"↶ Undo\" while the page stays open.)",
+  "Nouvelle catégorie": "New category",
+  "Nouveau revenu": "New income",
+  "Nouvelle dépense": "New expense",
+  "Nouvelle charge": "New charge",
+  " ⚠ Le fichier n'a pas pu être archivé.": " ⚠ The file couldn't be archived.",
+  "Téléchargement impossible.": "Download failed.",
+  "Supprimer le fichier « {f} » ? (Les transactions importées restent.)": "Delete the file \"{f}\"? (The imported transactions stay.)",
+  "Suppression impossible.": "Delete failed.",
+  "Compte d'épargne": "Savings account",
+  "Ajouter ce relevé (« {stmt} ») au compte « {acc} » ?": "Add this statement (\"{stmt}\") to the account \"{acc}\"?",
+  "OK : le compte « {acc} » utilisera désormais les opérations du relevé.": "OK: the account \"{acc}\" will use the statement's operations from now on.",
+  "Annuler : créer un nouveau compte « {stmt} ».": "Cancel: create a new account \"{stmt}\".",
+  "Épargne : {n} opération(s) importée(s)": "Savings: {n} operation(s) imported",
+  ", {n} déjà présente(s) ignorée(s)": ", {n} already there skipped",
+  "Impossible de lire ce PDF (connexion nécessaire pour charger le lecteur PDF). Réessayez.": "Couldn't read this PDF (a connection is needed to load the PDF reader). Try again.",
+  "Ce PDF n'a pas été reconnu comme un relevé de compte d'épargne (format LCL attendu : « ECRITURES DE LA PERIODE », colonnes DEBIT / CREDIT). Vous pouvez aussi importer un export CSV.": "This PDF wasn't recognised as a savings account statement (LCL format expected: \"ECRITURES DE LA PERIODE\", DEBIT / CREDIT columns). You can also import a CSV export.",
+  "Solde vérifié avec le relevé : {amt} au {date}.": "Balance checked against the statement: {amt} on {date}.",
+  "⚠ Le solde recalculé ne correspond pas exactement au relevé ({list}) : vérifiez ce compte.": "⚠ The recomputed balance doesn't exactly match the statement ({list}): check this account.",
+  "Colonnes attendues introuvables (date, libellé, montant). Vérifiez le fichier exporté de votre compte d'épargne.": "Expected columns not found (date, label, amount). Check the file exported from your savings account.",
+  "Êtes-vous sûr de vouloir supprimer le compte d'épargne « {acc} » et ses {n} opération(s) ? (Annulable avec « ↶ Annuler »)": "Are you sure you want to delete the savings account \"{acc}\" and its {n} operation(s)? (Can be undone with \"↶ Undo\")",
+  "Nom du compte d'épargne (ex : Livret A, PEL, Assurance-vie)": "Name of the savings account (e.g. Livret A, PEL, life insurance)",
+  "Nouveau nom du compte": "New name for the account",
+  "Colonnes attendues introuvables (date, libellé/label, montant). Vérifiez le format du fichier exporté.": "Expected columns not found (date, label, amount). Check the exported file's format.",
+  "{n} en {m}": "{n} in {m}",
+  " (onglet créé)": " (tab created)",
+  "{n} transaction(s) importée(s)": "{n} transaction(s) imported",
+  " pour {m}": " for {m}",
+  ", {n} déjà importée(s) ignorée(s)": ", {n} already imported skipped",
+  ", {n} catégorie(s) devinée(s) marquée(s) « ? » à vérifier": ", {n} guessed (marked \"?\") to check",
+  ". Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».": ". Check/complete their category below in \"Transactions\".",
+  "Nom de la nouvelle catégorie ?": "Name of the new category?",
+  "⚠️ Doublon : une dépense identique (même date, même montant, même libellé) existe déjà — modification bloquée.": "⚠️ Duplicate: an identical expense (same date, amount and label) already exists — change blocked.",
+};
+
 // Read before the client consumes the URL: did we arrive from a "reset password" e-mail link?
 const ARRIVED_FROM_RECOVERY_LINK = /type=recovery/.test(window.location.hash + window.location.search);
 // An expired or already-used e-mail link comes back with an error in the URL.
-const LINK_ERROR = /error_code=otp_expired|error=access_denied/.test(window.location.hash + window.location.search)
-  ? "Ce lien a expiré ou a déjà été utilisé. Demandez un nouveau lien ci-dessous." : "";
+const LINK_ERROR = /error_code=otp_expired|error=access_denied/.test(window.location.hash + window.location.search);
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const fmt = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " €";
+const fmt = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString(LOCALE(), { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " €";
 // Amounts in the transaction list: whole euros stay whole, otherwise always two decimals (2,20 €).
-const fmtCents = (n) => { const r = Math.round((n || 0) * 100) / 100; return r.toLocaleString("fr-FR", { minimumFractionDigits: Number.isInteger(r) ? 0 : 2, maximumFractionDigits: 2 }) + " €"; };
+const fmtCents = (n) => { const r = Math.round((n || 0) * 100) / 100; return r.toLocaleString(LOCALE(), { minimumFractionDigits: Number.isInteger(r) ? 0 : 2, maximumFractionDigits: 2 }) + " €"; };
 function uid(prefix) { return prefix + "_" + Math.random().toString(36).slice(2, 9); }
 
 // ---------- Bank label normalization (used for auto-categorization) ----------
@@ -412,8 +736,8 @@ function dateToDayNumber(date) {
 function prettyTxLabel(label) {
   const raw = (label || "").trim();
   let s = raw, prefix = "";
-  if (/^(PRLV|PRELEVEMENT)\b/i.test(s)) { prefix = "Prélèvement · "; s = s.replace(/^(PRLV|PRELEVEMENT)( SEPA)?\s+/i, ""); }
-  else if (/^VIR(EMENT)?\b/i.test(s)) { prefix = "Virement · "; s = s.replace(/^VIR(EMENT)?( SEPA)?( INST)?( RECU| EMIS)?\s+/i, ""); }
+  if (/^(PRLV|PRELEVEMENT)\b/i.test(s)) { prefix = t("Prélèvement") + " · "; s = s.replace(/^(PRLV|PRELEVEMENT)( SEPA)?\s+/i, ""); }
+  else if (/^VIR(EMENT)?\b/i.test(s)) { prefix = t("Virement") + " · "; s = s.replace(/^VIR(EMENT)?( SEPA)?( INST)?( RECU| EMIS)?\s+/i, ""); }
   else s = s.replace(/^(CARTE|CB)\s+(X?\d{4}\s+)?(\d{2}\/\d{2}(\/\d{2,4})?\s+)?/i, "");
   s = s.replace(/\s+CB\*\d+.*$/i, "").replace(/\s+\d{2}\/\d{2}(\/\d{2,4})?$/, "").trim();
   if (!s) return raw;
@@ -423,8 +747,8 @@ function prettyTxLabel(label) {
 }
 // "Lundi 31 août" for a day number from dateToDayNumber.
 function dayTitle(d) {
-  const t = new Date(d * 86400000).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
-  return t.charAt(0).toUpperCase() + t.slice(1);
+  const s = new Date(d * 86400000).toLocaleDateString(LOCALE(), { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 // Soft background/text colours for a category chip, stable per category.
 const CHIP_COLORS = [
@@ -643,15 +967,15 @@ function SavingsBalanceChart({ data }) {
     if (chartRef.current) chartRef.current.destroy();
     chartRef.current = new Chart(canvasRef.current, {
       type: "line",
-      data: { labels: data.map((d) => d.label), datasets: [{ label: "Solde fin de mois", data: data.map((d) => d.balance),
+      data: { labels: data.map((d) => d.label), datasets: [{ label: t("Solde fin de mois"), data: data.map((d) => d.balance),
         borderColor: "#4F7394", backgroundColor: "rgba(127,162,192,0.20)", fill: true, tension: 0.25, pointRadius: 3, pointBackgroundColor: "#4F7394", borderWidth: 3 }] },
       options: { responsive: true,
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `Solde : ${fmt(c.parsed.y)}` } } },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => t("Solde : {amt}", { amt: fmt(c.parsed.y) }) } } },
         scales: { x: { ticks: { font: { family: "IBM Plex Mono", size: 10 } } },
           y: { ticks: { font: { family: "IBM Plex Mono", size: 10 }, callback: (v) => fmt(v) } } } },
     });
     return () => chartRef.current && chartRef.current.destroy();
-  }, [data]);
+  }, [data, LANG]);
   return <canvas ref={canvasRef} height="80"></canvas>;
 }
 
@@ -664,20 +988,20 @@ function MonthlySpendChart({ data, budget, selectedName, onPick }) {
     chartRef.current = new Chart(canvasRef.current, {
       type: "bar",
       data: { labels: data.map((d) => d.name), datasets: [
-        { type: "bar", label: "Dépenses", data: data.map((d) => d.Dépenses), order: 2,
+        { type: "bar", label: t("Dépenses"), data: data.map((d) => d.Dépenses), order: 2,
           backgroundColor: data.map((d) => (d.name === selectedName ? "#E4A72C" : d.Dépenses > budget ? "#C8705E" : "#7FA2C0")), borderRadius: 6 },
-        { type: "line", label: "Budget mensuel", data: data.map(() => budget), order: 1,
+        { type: "line", label: t("Budget mensuel"), data: data.map(() => budget), order: 1,
           borderColor: "#1B1E21", borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0, fill: false },
       ]},
       options: { responsive: true,
         plugins: {
           legend: { labels: { font: { family: "Instrument Sans", size: 12 } } },
           tooltip: { callbacks: {
-            label: (c) => `${c.dataset.label} : ${fmt(c.parsed.y)}`,
+            label: (c) => t("{label} : {amt}", { label: c.dataset.label, amt: fmt(c.parsed.y) }),
             afterBody: (items) => {
               const d = data[items[0].dataIndex];
               if (!d || !d.causes || !d.causes.length) return "";
-              return ["", `Budget dépassé de ${fmt(Math.round(d.overrun))} :`].concat(d.causes.slice(0, 4).map((c) => `• ${c.name} +${fmt(Math.round(c.excess))}`));
+              return ["", t("Budget dépassé de {amt} :", { amt: fmt(Math.round(d.overrun)) })].concat(d.causes.slice(0, 4).map((c) => `• ${c.name} +${fmt(Math.round(c.excess))}`));
             },
           } },
         },
@@ -688,15 +1012,26 @@ function MonthlySpendChart({ data, budget, selectedName, onPick }) {
           y: { beginAtZero: true, ticks: { font: { family: "IBM Plex Mono", size: 10 }, callback: (v) => fmt(v) } } } },
     });
     return () => chartRef.current && chartRef.current.destroy();
-  }, [data, budget, selectedName]);
+  }, [data, budget, selectedName, LANG]);
   return <canvas ref={canvasRef} height="90"></canvas>;
 }
 
+// ---------- Language switch (FR | EN) ----------
+function LangSwitch({ lang, onChange }) {
+  return (
+    <div className="lang-switch" role="group" aria-label={t("Langue")}>
+      {["fr", "en"].map((l) => (
+        <button key={l} type="button" aria-pressed={lang === l} className={lang === l ? "active" : ""} onClick={() => onChange(l)}>{l.toUpperCase()}</button>
+      ))}
+    </div>
+  );
+}
+
 // ---------- Auth screen ----------
-function AuthScreen() {
+function AuthScreen({ lang, onLang }) {
   const [mode, setMode] = useState(LINK_ERROR ? "forgot" : "signin");
   const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
-  const [error, setError] = useState(LINK_ERROR); const [msg, setMsg] = useState(""); const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(LINK_ERROR ? "Ce lien a expiré ou a déjà été utilisé. Demandez un nouveau lien ci-dessous." : ""); const [msg, setMsg] = useState(""); const [busy, setBusy] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault(); setError(""); setMsg(""); setBusy(true);
@@ -722,26 +1057,26 @@ function AuthScreen() {
   return (
     <div className="center-screen">
       <form className="auth-card" onSubmit={submit}>
-        <h1 className="auth-title">Budget du foyer</h1>
-        <p className="auth-sub">Connectez-vous pour accéder au budget partagé</p>
+        <div className="auth-top"><h1 className="auth-title">{t("Budget du foyer")}</h1><LangSwitch lang={lang} onChange={onLang} /></div>
+        <p className="auth-sub">{t("Connectez-vous pour accéder au budget partagé")}</p>
         <div className="tab-switch">
-          <button type="button" className={mode === "signin" ? "active" : ""} onClick={() => { setMode("signin"); setError(""); setMsg(""); }}>Se connecter</button>
-          <button type="button" className={mode === "signup" ? "active" : ""} onClick={() => { setMode("signup"); setError(""); setMsg(""); }}>Créer un compte</button>
+          <button type="button" className={mode === "signin" ? "active" : ""} onClick={() => { setMode("signin"); setError(""); setMsg(""); }}>{t("Se connecter")}</button>
+          <button type="button" className={mode === "signup" ? "active" : ""} onClick={() => { setMode("signup"); setError(""); setMsg(""); }}>{t("Créer un compte")}</button>
         </div>
-        {mode === "forgot" && <p className="auth-sub" style={{ marginTop: -6 }}>Entrez votre e-mail : vous recevrez un lien pour choisir un nouveau mot de passe.</p>}
-        <div className="field"><label>E-mail</label><input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
+        {mode === "forgot" && <p className="auth-sub" style={{ marginTop: -6 }}>{t("Entrez votre e-mail : vous recevrez un lien pour choisir un nouveau mot de passe.")}</p>}
+        <div className="field"><label>{t("E-mail")}</label><input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
         {mode !== "forgot" && (
-          <div className="field"><label>Mot de passe</label><input type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} /></div>
+          <div className="field"><label>{t("Mot de passe")}</label><input type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} /></div>
         )}
-        <button className="btn" disabled={busy}>{mode === "forgot" ? "Envoyer le lien" : mode === "signin" ? "Se connecter" : "Créer le compte"}</button>
+        <button className="btn" disabled={busy}>{t(mode === "forgot" ? "Envoyer le lien" : mode === "signin" ? "Se connecter" : "Créer le compte")}</button>
         {mode === "signin" && (
-          <button type="button" className="btn-link" onClick={() => { setMode("forgot"); setError(""); setMsg(""); }}>Mot de passe oublié ?</button>
+          <button type="button" className="btn-link" onClick={() => { setMode("forgot"); setError(""); setMsg(""); }}>{t("Mot de passe oublié ?")}</button>
         )}
         {mode === "forgot" && (
-          <button type="button" className="btn-link" onClick={() => { setMode("signin"); setError(""); setMsg(""); }}>← Retour à la connexion</button>
+          <button type="button" className="btn-link" onClick={() => { setMode("signin"); setError(""); setMsg(""); }}>{t("← Retour à la connexion")}</button>
         )}
-        {error && <p className="err">{error}</p>}
-        {msg && <p className="msg">{msg}</p>}
+        {error && <p className="err">{t(error)}</p>}
+        {msg && <p className="msg">{t(msg)}</p>}
       </form>
     </div>
   );
@@ -763,12 +1098,12 @@ function NewPasswordScreen({ onDone }) {
   return (
     <div className="center-screen">
       <form className="auth-card" onSubmit={submit}>
-        <h1 className="auth-title">Nouveau mot de passe</h1>
-        <p className="auth-sub">Choisissez un nouveau mot de passe pour votre compte.</p>
-        <div className="field"><label>Nouveau mot de passe</label><input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} autoFocus /></div>
-        <div className="field"><label>Confirmer</label><input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required minLength={6} /></div>
-        <button className="btn" disabled={busy}>Enregistrer le mot de passe</button>
-        {error && <p className="err">{error}</p>}
+        <h1 className="auth-title">{t("Nouveau mot de passe")}</h1>
+        <p className="auth-sub">{t("Choisissez un nouveau mot de passe pour votre compte.")}</p>
+        <div className="field"><label>{t("Nouveau mot de passe")}</label><input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} autoFocus /></div>
+        <div className="field"><label>{t("Confirmer")}</label><input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required minLength={6} /></div>
+        <button className="btn" disabled={busy}>{t("Enregistrer le mot de passe")}</button>
+        {error && <p className="err">{t(error)}</p>}
       </form>
     </div>
   );
@@ -803,31 +1138,31 @@ function HouseholdSetup({ session, onReady }) {
   return (
     <div className="center-screen">
       <div className="auth-card">
-        <h1 className="auth-title">Votre foyer</h1>
-        <p className="auth-sub">Créez un foyer ou rejoignez celui d'un proche</p>
+        <h1 className="auth-title">{t("Votre foyer")}</h1>
+        <p className="auth-sub">{t("Créez un foyer ou rejoignez celui d'un proche")}</p>
         <div className="tab-switch">
-          <button type="button" className={mode === "create" ? "active" : ""} onClick={() => setMode("create")}>Créer un foyer</button>
-          <button type="button" className={mode === "join" ? "active" : ""} onClick={() => setMode("join")}>Rejoindre avec un code</button>
+          <button type="button" className={mode === "create" ? "active" : ""} onClick={() => setMode("create")}>{t("Créer un foyer")}</button>
+          <button type="button" className={mode === "join" ? "active" : ""} onClick={() => setMode("join")}>{t("Rejoindre avec un code")}</button>
         </div>
         {mode === "create" ? (
           <form onSubmit={createHousehold}>
-            <div className="field"><label>Nom du foyer</label><input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="ex: Famille Massard" required /></div>
-            <button className="btn" disabled={busy}>Créer</button>
+            <div className="field"><label>{t("Nom du foyer")}</label><input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("ex: Famille Massard")} required /></div>
+            <button className="btn" disabled={busy}>{t("Créer")}</button>
           </form>
         ) : (
           <form onSubmit={joinHousehold}>
-            <div className="field"><label>Code d'invitation</label><input type="text" value={code} onChange={(e) => setCode(e.target.value)} placeholder="ex: a1b2c3d4" required /></div>
-            <button className="btn" disabled={busy}>Rejoindre</button>
+            <div className="field"><label>{t("Code d'invitation")}</label><input type="text" value={code} onChange={(e) => setCode(e.target.value)} placeholder={t("ex: a1b2c3d4")} required /></div>
+            <button className="btn" disabled={busy}>{t("Rejoindre")}</button>
           </form>
         )}
-        {error && <p className="err">{error}</p>}
+        {error && <p className="err">{t(error)}</p>}
       </div>
     </div>
   );
 }
 
 // ---------- Main budget tracker (shared, per household) ----------
-function BudgetTracker({ household, onLogout, onRename }) {
+function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
   const [loaded, setLoaded] = useState(false);
   const [categories, setCategories] = useState([]);
   const [months, setMonths] = useState([]);
@@ -1059,7 +1394,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
   const updateCategoryBudget = (id, v) => setCategories((cs) => cs.map((c) => (c.id === id ? { ...c, budget: v } : c)));
   const renameCategory = (id, name) => setCategories((cs) => cs.map((c) => (c.id === id ? { ...c, name } : c)));
-  const addCategory = () => setCategories((cs) => [...cs, { id: uid("cat"), name: "Nouvelle catégorie", budget: 0 }]);
+  const addCategory = () => setCategories((cs) => [...cs, { id: uid("cat"), name: t("Nouvelle catégorie"), budget: 0 }]);
   const removeCategory = (id) => {
     setCategories((cs) => cs.filter((c) => c.id !== id));
     setActuals((a) => { const next = { ...a }; for (const m of Object.keys(next)) { const { [id]: _, ...rest } = next[m] || {}; next[m] = rest; } return next; });
@@ -1100,7 +1435,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
       const n = MONTH_NAMES_FR[nm - 1];
       suggestion = n.charAt(0).toUpperCase() + n.slice(1) + " " + ny;
     }
-    const label = window.prompt("Nom du nouveau mois", suggestion); if (!label) return;
+    const label = window.prompt(t("Nom du nouveau mois"), suggestion); if (!label) return;
     const id = uid("month");
     const key = monthLabelToKey(label);
     setMonths((ms) => sortMonthsChronologically([...ms, key ? { id, label, date: key + "-01" } : { id, label }]));
@@ -1116,10 +1451,10 @@ function BudgetTracker({ household, onLogout, onRename }) {
     const n = (transactions[id] || []).length;
     const nFiles = importFiles.filter((f) => f.month_id === id).length;
     if (!window.confirm(
-      `Êtes-vous sûr de vouloir supprimer l'onglet « ${m?.label || ""} » ?\n\n` +
-      `Tout ce qui lui est lié sera supprimé : ${n} transaction(s), revenus et épargne du mois` +
-      (nFiles ? `, et ${nFiles} relevé(s) importé(s) (définitif)` : "") + `.\n` +
-      `(Vous pourrez encore revenir en arrière avec « ↶ Annuler » tant que la page reste ouverte.)`
+      t("Êtes-vous sûr de vouloir supprimer l'onglet « {m} » ?", { m: displayMonth(m?.label) }) + "\n\n" +
+      t("Tout ce qui lui est lié sera supprimé : {n} transaction(s), revenus et épargne du mois", { n }) +
+      (nFiles ? t(", et {n} relevé(s) importé(s) (définitif)", { n: nFiles }) : "") + ".\n" +
+      t("(Vous pourrez encore revenir en arrière avec « ↶ Annuler » tant que la page reste ouverte.)")
     )) return;
     // Remove every piece of data keyed by this month, not just the tab.
     const without = (obj) => { const { [id]: _, ...rest } = obj || {}; return rest; };
@@ -1151,13 +1486,13 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const cancelEditMonth = () => setEditingMonthId(null);
   const renameMonth = (id) => {
     const current = months.find((m) => m.id === id);
-    const label = window.prompt("Nouveau nom du mois", current ? current.label : "");
+    const label = window.prompt(t("Nouveau nom du mois"), current ? current.label : "");
     if (label && label.trim()) setMonths((ms) => ms.map((m) => (m.id === id ? { ...m, label: label.trim() } : m)));
   };
   const updateIncomeLine = (m, lineId, field, v) => setIncome((inc) => ({ ...inc, [m]: (inc[m] || []).map((l) => (l.id === lineId ? { ...l, [field]: v } : l)) }));
   const addIncomeLine = (m) => {
     const id = uid("inc");
-    setIncome((inc) => ({ ...inc, [m]: [...(inc[m] || []), { id, label: "Nouveau revenu", amount: 0 }] }));
+    setIncome((inc) => ({ ...inc, [m]: [...(inc[m] || []), { id, label: t("Nouveau revenu"), amount: 0 }] }));
     setFreshIncome((f) => ({ ...f, [id]: true })); // stays visible while its amount is still 0
   };
   const removeIncomeLine = (m, lineId) => setIncome((inc) => ({ ...inc, [m]: (inc[m] || []).filter((l) => l.id !== lineId) }));
@@ -1183,12 +1518,12 @@ function BudgetTracker({ household, onLogout, onRename }) {
       household_id: household.id, month_id: monthId, file_name: fileName, content,
       imported_count: importedCount, skipped_count: skippedCount,
     });
-    if (error) setImportSummary((msg) => (msg || "") + " ⚠ Le fichier CSV n'a pas pu être archivé.");
+    if (error) setImportSummary((msg) => (msg || "") + t(" ⚠ Le fichier n'a pas pu être archivé."));
     loadImportFiles();
   };
   const downloadImportFile = async (f) => {
     const { data, error } = await sb.from("household_imports").select("content").eq("id", f.id).maybeSingle();
-    if (error || !data) { window.alert("Téléchargement impossible."); return; }
+    if (error || !data) { window.alert(t("Téléchargement impossible.")); return; }
     // PDFs are archived as a data URL; CSVs as plain text.
     let blob;
     if (data.content.startsWith("data:application/pdf;base64,")) {
@@ -1206,9 +1541,9 @@ function BudgetTracker({ household, onLogout, onRename }) {
   // Statements archived for the month on screen (savings PDFs have no month and aren't listed here).
   const monthImportFiles = importFiles.filter((f) => f.month_id === selectedMonth);
   const deleteImportFile = async (f) => {
-    if (!window.confirm(`Supprimer le fichier « ${f.file_name} » ? (Les transactions importées restent.)`)) return;
+    if (!window.confirm(t("Supprimer le fichier « {f} » ? (Les transactions importées restent.)", { f: f.file_name }))) return;
     const { error } = await sb.from("household_imports").delete().eq("id", f.id);
-    if (error) { window.alert("Suppression impossible."); return; }
+    if (error) { window.alert(t("Suppression impossible.")); return; }
     setImportFiles((fs) => fs.filter((x) => x.id !== f.id));
   };
 
@@ -1502,7 +1837,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
       const label = c[labelIdx] || "(sans libellé)";
       rows.push({
         account: (accNumIdx !== -1 && c[accNumIdx]) || (accLabelIdx !== -1 && c[accLabelIdx]) || "epargne",
-        accountLabel: (accLabelIdx !== -1 && c[accLabelIdx]) || "Compte d'épargne",
+        accountLabel: (accLabelIdx !== -1 && c[accLabelIdx]) || t("Compte d'épargne"),
         date: c[dateIdx], label, amount, balance: isNaN(balance) ? null : balance,
         importSig: c[dateIdx] + "|" + amount.toFixed(2) + "|" + label.trim().toLowerCase(),
       });
@@ -1548,9 +1883,9 @@ function BudgetTracker({ household, onLogout, onRename }) {
         const shownId = selectedAccount && next[selectedAccount] ? selectedAccount : Object.keys(savingsAccounts)[0];
         const cur = shownId && next[shownId];
         if (cur && cur.manual && window.confirm(
-          `Ajouter ce relevé (« ${r.accountLabel} ») au compte « ${cur.label} » ?\n\n` +
-          `OK : le compte « ${cur.label} » utilisera désormais les opérations du relevé.\n` +
-          `Annuler : créer un nouveau compte « ${r.accountLabel} ».`)) {
+          t("Ajouter ce relevé (« {stmt} ») au compte « {acc} » ?", { stmt: r.accountLabel, acc: cur.label }) + "\n\n" +
+          t("OK : le compte « {acc} » utilisera désormais les opérations du relevé.", { acc: cur.label }) + "\n" +
+          t("Annuler : créer un nouveau compte « {stmt} ».", { stmt: r.accountLabel }))) {
           id = shownId;
           next[id] = { ...cur, manual: false, bankKey: r.account, entries: [] };
         } else {
@@ -1568,7 +1903,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
     }
     for (const k of Object.keys(next)) { delete next[k]._pool; delete next[k]._copied; }
     setSavingsAccounts(next);
-    setImportSummary(`Épargne : ${added} opération(s) importée(s)` + (skipped ? `, ${skipped} déjà présente(s) ignorée(s)` : "") + "." + (note ? " " + note : ""));
+    setImportSummary(t("Épargne : {n} opération(s) importée(s)", { n: added }) + (skipped ? t(", {n} déjà présente(s) ignorée(s)", { n: skipped }) : "") + "." + (note ? " " + note : ""));
     setView("epargne");
     if (targetFirst) setSelectedAccount(targetFirst);
     saveImportFile(fileName, archiveContent, null, added, skipped);
@@ -1585,18 +1920,18 @@ function BudgetTracker({ household, onLogout, onRename }) {
         const buffer = ev.target.result;
         let st;
         try { st = parseLclStatement(await readPdfPages(buffer)); }
-        catch (err) { window.alert("Impossible de lire ce PDF (connexion nécessaire pour charger le lecteur PDF). Réessayez."); return; }
+        catch (err) { window.alert(t("Impossible de lire ce PDF (connexion nécessaire pour charger le lecteur PDF). Réessayez.")); return; }
         if (!st) {
-          window.alert("Ce PDF n'a pas été reconnu comme un relevé de compte d'épargne (format LCL attendu : « ECRITURES DE LA PERIODE », colonnes DEBIT / CREDIT). Vous pouvez aussi importer un export CSV.");
+          window.alert(t("Ce PDF n'a pas été reconnu comme un relevé de compte d'épargne (format LCL attendu : « ECRITURES DE LA PERIODE », colonnes DEBIT / CREDIT). Vous pouvez aussi importer un export CSV."));
           return;
         }
-        const accountLabel = titleCase(st.title || "Compte d'épargne") + (st.accountNumber ? " · " + st.accountNumber : "");
+        const accountLabel = titleCase(st.title || t("Compte d'épargne")) + (st.accountNumber ? " · " + st.accountNumber : "");
         const bankKey = "pdf:" + (st.accountNumber || st.title).replace(/\s+/g, "");
         const rows = st.entries.map((o) => ({ account: bankKey, accountLabel, date: o.date, label: o.label, amount: o.amount, balance: o.balance,
           importSig: o.date + "|" + o.amount.toFixed(2) + "|" + o.label.trim().toLowerCase() }));
         const note = st.verified
-          ? `Solde vérifié avec le relevé : ${fmt(st.closing)} au ${st.periodEnd.split("-").reverse().join("/")}.`
-          : `⚠ Le solde recalculé ne correspond pas exactement au relevé (${st.mismatches.map((m) => m.label + " " + fmt(m.amount)).join(", ")}) : vérifiez ce compte.`;
+          ? t("Solde vérifié avec le relevé : {amt} au {date}.", { amt: fmt(st.closing), date: st.periodEnd.split("-").reverse().join("/") })
+          : t("⚠ Le solde recalculé ne correspond pas exactement au relevé ({list}) : vérifiez ce compte.", { list: st.mismatches.map((m) => m.label + " " + fmt(m.amount)).join(", ") });
         // Archive the PDF itself (as a data URL) so it can be downloaded again.
         const bytes = new Uint8Array(buffer); let bin = "";
         for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
@@ -1608,7 +1943,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
         const content = ev.target.result;
         const rows = parseSavingsCsv(content);
         if (rows === "invalid" || rows.length === 0) {
-          window.alert("Colonnes attendues introuvables (date, libellé, montant). Vérifiez le fichier exporté de votre compte d'épargne.");
+          window.alert(t("Colonnes attendues introuvables (date, libellé, montant). Vérifiez le fichier exporté de votre compte d'épargne."));
           return;
         }
         mergeSavingsRows(rows, file.name, content, "");
@@ -1618,7 +1953,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   };
   const removeSavingsAccount = (key) => {
     const acc = savingsAccounts[key];
-    if (!window.confirm(`Êtes-vous sûr de vouloir supprimer le compte d'épargne « ${acc?.label || key} » et ses ${acc?.entries.length || 0} opération(s) ? (Annulable avec « ↶ Annuler »)`)) return;
+    if (!window.confirm(t("Êtes-vous sûr de vouloir supprimer le compte d'épargne « {acc} » et ses {n} opération(s) ? (Annulable avec « ↶ Annuler »)", { acc: acc?.label || key, n: acc?.entries.length || 0 }))) return;
     setSavingsAccounts((a) => { const { [key]: _, ...rest } = a; return rest; });
   };
   // Month-by-month summary of one savings account: money in, money out,
@@ -1627,14 +1962,14 @@ function BudgetTracker({ household, onLogout, onRename }) {
   // is computed by adding up the operations from 0. Months without any
   // operation are filled in with the previous balance.
   const addSavingsAccount = () => {
-    const name = window.prompt("Nom du compte d'épargne (ex : Livret A, PEL, Assurance-vie)");
+    const name = window.prompt(t("Nom du compte d'épargne (ex : Livret A, PEL, Assurance-vie)"));
     if (!name || !name.trim()) return;
     const id = uid("acc");
     setSavingsAccounts((a) => ({ ...a, [id]: { label: name.trim(), manual: true, balances: {}, entries: [] } }));
     setSelectedAccount(id);
   };
   const renameSavingsAccount = (key) => {
-    const name = window.prompt("Nouveau nom du compte", savingsAccounts[key]?.label || "");
+    const name = window.prompt(t("Nouveau nom du compte"), savingsAccounts[key]?.label || "");
     if (name && name.trim()) setSavingsAccounts((a) => ({ ...a, [key]: { ...a[key], label: name.trim() } }));
   };
   // Typing a balance for a month; emptying the box removes that month's value.
@@ -1643,7 +1978,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
       const { [monthKey]: _, ...rest } = a[key].balances || {};
       return { ...a, [key]: { ...a[key], balances: value === "" || value === null || isNaN(value) ? rest : { ...rest, [monthKey]: value } } };
     });
-  const monthKeyLabel = (k) => { const [y, mo] = k.split("-").map(Number); const n = MONTH_NAMES_FR[mo - 1]; return n.charAt(0).toUpperCase() + n.slice(1) + " " + y; };
+  const monthKeyLabel = (k) => { const [y, mo] = k.split("-").map(Number); return monthName(mo - 1) + " " + y; };
   const savingsMonthly = (acc, monthKeys = []) => {
     if (acc.manual) {
       // One row per month of the budget (plus any other month that has a
@@ -1686,8 +2021,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
       const k = y + "-" + String(mo).padStart(2, "0");
       const m = byMonth[k] || { in: 0, out: 0, interest: 0, balance: null };
       const balance = m.balance !== null ? m.balance : prevBalance;
-      const name = MONTH_NAMES_FR[mo - 1];
-      out.push({ key: k, label: name.charAt(0).toUpperCase() + name.slice(1) + " " + y, in: m.in, out: m.out, interest: m.interest,
+      out.push({ key: k, label: monthName(mo - 1) + " " + y, in: m.in, out: m.out, interest: m.interest,
         balance, change: balance !== null && prevBalance !== null ? balance - prevBalance : null });
       if (balance !== null) prevBalance = balance;
     }
@@ -1698,13 +2032,13 @@ function BudgetTracker({ household, onLogout, onRename }) {
     const file = e.target.files[0];
     if (!file) return;
     const targetMonth = selectedMonth; // capture now — shouldn't drift if the user switches tabs before the read finishes
-    const targetLabel = months.find((m) => m.id === targetMonth)?.label || targetMonth;
+    const targetLabel = displayMonth(months.find((m) => m.id === targetMonth)?.label) || targetMonth;
     const reader = new FileReader();
     reader.onload = (ev) => {
       const content = ev.target.result;
       const parsed = parseCsv(content, targetMonth);
       if (parsed === "invalid") {
-        window.alert("Colonnes attendues introuvables (date, libellé/label, montant). Vérifiez le format du fichier exporté.");
+        window.alert(t("Colonnes attendues introuvables (date, libellé/label, montant). Vérifiez le format du fichier exporté."));
         return;
       }
       const dupCount = parsed.filter((r) => r.duplicate).length;
@@ -1751,15 +2085,15 @@ function BudgetTracker({ household, onLogout, onRename }) {
         for (const [monthId, rows] of Object.entries(byMonth)) next[monthId] = [...(next[monthId] || []), ...rows];
         return next;
       });
-      const labelOf = (id) => newTabs.find((t) => t.id === id)?.label || months.find((m) => m.id === id)?.label || id;
+      const labelOf = (id) => displayMonth(newTabs.find((x) => x.id === id)?.label || months.find((m) => m.id === id)?.label || id);
       const perMonth = Object.entries(byMonth)
-        .map(([id, rows]) => `${rows.length} en ${labelOf(id)}${newTabs.some((t) => t.id === id) ? " (onglet créé)" : ""}`)
+        .map(([id, rows]) => t("{n} en {m}", { n: rows.length, m: labelOf(id) }) + (newTabs.some((x) => x.id === id) ? t(" (onglet créé)") : ""))
         .join(", ");
       setImportSummary(
-        `${newRows.length} transaction(s) importée(s)` + (perMonth ? ` : ${perMonth}` : ` pour ${targetLabel}`) +
-        (dupCount > 0 ? `, ${dupCount} déjà importée(s) ignorée(s)` : "") +
-        (newRows.some((r) => r.categorySource === "keyword") ? `, ${newRows.filter((r) => r.categorySource === "keyword").length} catégorie(s) devinée(s) marquée(s) « ? » à vérifier` : "") +
-        `. Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».`
+        t("{n} transaction(s) importée(s)", { n: newRows.length }) + (perMonth ? (LANG === "en" ? ": " : " : ") + perMonth : t(" pour {m}", { m: targetLabel })) +
+        (dupCount > 0 ? t(", {n} déjà importée(s) ignorée(s)", { n: dupCount }) : "") +
+        (newRows.some((r) => r.categorySource === "keyword") ? t(", {n} catégorie(s) devinée(s) marquée(s) « ? » à vérifier", { n: newRows.filter((r) => r.categorySource === "keyword").length }) : "") +
+        t(". Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».")
       );
       setShowTransactions(true);
       saveImportFile(file.name, content, targetMonth, newRows.length, dupCount);
@@ -1779,7 +2113,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
   const updateTransactionCategory = (m, txId, catId) => {
     if (catId === "__new__") {
-      const name = window.prompt("Nom de la nouvelle catégorie ?");
+      const name = window.prompt(t("Nom de la nouvelle catégorie ?"));
       if (!name) return;
       const newId = uid("cat");
       setCategories((cs) => [...cs, { id: newId, name, budget: 0 }]);
@@ -1813,7 +2147,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
     if (isComplete) {
       const dup = findDuplicateInMonth(m, candidate, txId);
       if (dup) {
-        flagTxError(txId, "⚠️ Doublon : une dépense identique (même date, même montant, même libellé) existe déjà — modification bloquée.");
+        flagTxError(txId, t("⚠️ Doublon : une dépense identique (même date, même montant, même libellé) existe déjà — modification bloquée."));
         return; // block the change
       }
     }
@@ -1824,7 +2158,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   // New lines start without a date, so they show at the top of the list, already open for editing.
   const addManualTransaction = (m) => {
     const id = uid("tx");
-    setTransactions((t) => ({ ...t, [m]: [...(t[m] || []), { id, date: "", label: "Nouvelle dépense", amount: 0, categoryId: "" }] }));
+    setTransactions((t) => ({ ...t, [m]: [...(t[m] || []), { id, date: "", label: t("Nouvelle dépense"), amount: 0, categoryId: "" }] }));
     setTxQuery(""); setTxCatFilter(""); setOpenTx(id);
   };
   const toggleRecurring = (m, txId) =>
@@ -1832,7 +2166,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
   // ---------- Recurring fees (household-wide schedule, not tied to a specific month) ----------
   const addRecurringFee = () =>
-    setRecurringFees((fs) => [...fs, { id: uid("fee"), label: "Nouvelle charge", amount: 0, dayOfMonth: 1, categoryId: "" }]);
+    setRecurringFees((fs) => [...fs, { id: uid("fee"), label: t("Nouvelle charge"), amount: 0, dayOfMonth: 1, categoryId: "" }]);
   const updateRecurringFee = (id, field, value) =>
     setRecurringFees((fs) => fs.map((f) => (f.id === id ? { ...f, [field]: value } : f)));
   const removeRecurringFee = (id) => setRecurringFees((fs) => fs.filter((f) => f.id !== id));
@@ -1853,7 +2187,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
     !recurringFees.some((f) => feeAmountClose(f, tx.amount, 0.05) && feeLabelOverlap(f, tx.label));
 
 
-  if (!loaded || !selectedMonth) return <div style={{ padding: 40 }}>Chargement du budget…</div>;
+  if (!loaded || !selectedMonth) return <div style={{ padding: 40 }}>{t("Chargement du budget…")}</div>;
 
   const commitNameEdit = () => {
     const name = nameDraft.trim();
@@ -1869,7 +2203,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
     // Within 50 cents of the budget counts as exactly reached (the note would otherwise say "reste 0 €").
     const reached = budget > 0 && Math.abs(budget - spent) < 0.5;
     const state = budget <= 0 ? "none" : reached ? "reached" : spent > budget ? "over" : spent >= 0.9 * budget ? "near" : "ok";
-    const note = state === "none" ? (spent ? "hors budget" : "pas de budget") : reached ? "budget atteint" : state === "over" ? `+${fmt(Math.round(spent - budget))} au-dessus` : state === "near" ? `presque atteint · reste ${fmt(Math.round(budget - spent))}` : `reste ${fmt(Math.round(budget - spent))}`;
+    const note = state === "none" ? t(spent ? "hors budget" : "pas de budget") : reached ? t("budget atteint") : state === "over" ? t("+{amt} au-dessus", { amt: fmt(Math.round(spent - budget)) }) : state === "near" ? t("presque atteint · reste {amt}", { amt: fmt(Math.round(budget - spent)) }) : t("reste {amt}", { amt: fmt(Math.round(budget - spent)) });
     return { id: c.id, name: c.name, spent, budget, state, note, pct: budget > 0 ? Math.min(100, (spent / budget) * 100) : (spent ? 100 : 0) };
   }).filter((c) => c.spent !== 0 || c.budget > 0)
     .sort((a, b) => (a.state === "over") !== (b.state === "over") ? (a.state === "over" ? -1 : 1) : b.spent - a.spent);
@@ -1900,12 +2234,12 @@ function BudgetTracker({ household, onLogout, onRename }) {
       if (spent - budget >= 0.5) causes.push({ id: c.id, name: c.name, excess: spent - budget, noBudget: budget <= 0 });
     });
     const unc = uncategorizedSpent(mId);
-    if (unc >= 0.5) causes.push({ id: "__none__", name: "Non catégorisé", excess: unc, noBudget: true });
+    if (unc >= 0.5) causes.push({ id: "__none__", name: t("Non catégorisé"), excess: unc, noBudget: true });
     return causes.sort((a, b) => b.excess - a.excess);
   };
   const spendData = sortedMonths.map((m) => {
     const total = monthActualTotal(m.id), overrun = total - monthBudgetTotal;
-    return { id: m.id, name: m.label, Dépenses: Math.round(total * 100) / 100, overrun, causes: monthBudgetTotal > 0 && overrun >= 0.5 ? monthCauses(m.id) : [] };
+    return { id: m.id, name: displayMonth(m.label), Dépenses: Math.round(total * 100) / 100, overrun, causes: monthBudgetTotal > 0 && overrun >= 0.5 ? monthCauses(m.id) : [] };
   });
   const overMonths = spendData.filter((d) => d.causes.length > 0);
   // Suggestions from patterns over the finished months that have spending.
@@ -1927,24 +2261,24 @@ function BudgetTracker({ household, onLogout, onRename }) {
       if (budget <= 0) {
         if (usedIn >= Math.max(2, Math.ceil(ms.length / 2)) && avg >= 5)
           out.push({ key: c.id, impact: avg, kind: "nobudget", catId: c.id, value: nice(avg),
-            text: <React.Fragment><strong>{c.name}</strong> n'a pas de budget mais revient {usedIn} mois sur {ms.length} (≈ {fmt(Math.round(avg))}/mois en moyenne).</React.Fragment> });
+            text: <React.Fragment><strong>{c.name}</strong>{t(" n'a pas de budget mais revient {n} mois sur {total} (≈ {avg}/mois en moyenne).", { n: usedIn, total: ms.length, avg: fmt(Math.round(avg)) })}</React.Fragment> });
         return;
       }
       if (overIdx.length >= 2 && overIdx.length >= ms.length / 2) {
         const avgOver = spends.reduce((a, b) => a + b, 0) / ms.length;
         out.push({ key: c.id, impact: (avgOver - budget) * overIdx.length, kind: "raise", catId: c.id, value: nice(avgOver),
-          text: <React.Fragment><strong>{c.name}</strong> dépasse son budget {overIdx.length} mois sur {ms.length} : {fmt(Math.round(avgOver))} en moyenne pour {fmt(Math.round(budget))} prévus. Soit le budget est trop bas, soit c'est le poste à surveiller.</React.Fragment> });
+          text: <React.Fragment><strong>{c.name}</strong>{t(" dépasse son budget {n} mois sur {total} : {avg} en moyenne pour {budget} prévus. Soit le budget est trop bas, soit c'est le poste à surveiller.", { n: overIdx.length, total: ms.length, avg: fmt(Math.round(avgOver)), budget: fmt(Math.round(budget)) })}</React.Fragment> });
       } else if (overIdx.length === 1) {
         const m = ms[overIdx[0]];
         const big = monthTransactions(m.id).filter((t) => t.categoryId === c.id && Number(t.amount) > 0).sort((a, b) => b.amount - a.amount)[0];
         const excess = spends[overIdx[0]] - budget;
         if (big && big.amount >= excess * 0.5 && excess >= 20)
           out.push({ key: c.id, impact: excess * 0.5, kind: "oneoff",
-            text: <React.Fragment><strong>{c.name}</strong> : dépassement ponctuel en {m.label.toLowerCase()} (+{fmt(Math.round(excess))}), surtout « {prettyTxLabel(big.label)} » ({fmtCents(big.amount)}). Si c'est exceptionnel, inutile de changer le budget.</React.Fragment> });
+            text: <React.Fragment><strong>{c.name}</strong>{t(" : dépassement ponctuel en {m} (+{amt}), surtout « {tx} » ({txamt}). Si c'est exceptionnel, inutile de changer le budget.", { m: monthInText(m.label), amt: fmt(Math.round(excess)), tx: prettyTxLabel(big.label), txamt: fmtCents(big.amount) })}</React.Fragment> });
       } else if (ms.length >= 3 && budget >= 20 && usedIn >= Math.ceil(ms.length / 2) && spends.every((v) => v <= budget * 0.5)) {
         // Only for categories actually used: a category with no spending at all may be yearly (gifts, insurance…).
         out.push({ key: c.id, impact: (budget - avg) * 0.6, kind: "lower", catId: c.id, value: nice(Math.max(avg, 5)),
-          text: <React.Fragment><strong>{c.name}</strong> est toujours bien en dessous : {fmt(Math.round(avg))} en moyenne pour {fmt(Math.round(budget))} prévus. Ce budget pourrait financer un poste qui dépasse.</React.Fragment> });
+          text: <React.Fragment><strong>{c.name}</strong>{t(" est toujours bien en dessous : {avg} en moyenne pour {budget} prévus. Ce budget pourrait financer un poste qui dépasse.", { avg: fmt(Math.round(avg)), budget: fmt(Math.round(budget)) })}</React.Fragment> });
       }
     });
     return out.sort((a, b) => b.impact - a.impact).slice(0, 6);
@@ -1964,7 +2298,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const curSavingsFromCategory = epargneFromTransactions(selectedMonth);
   const curSavings = monthSavings(selectedMonth);
   const curRestant = monthRestant(selectedMonth);
-  const curMonthLabel = months.find((m) => m.id === selectedMonth)?.label;
+  const curMonthLabel = displayMonth(months.find((m) => m.id === selectedMonth)?.label);
 
   // Recurring fees: for each one, check whether a real transaction already
   // exists in its category for the selected month — that's a genuine
@@ -1990,7 +2324,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
     return (
       <div style={{ padding: "2px 0 10px 16px", fontSize: 12, color: "var(--ink-soft)" }}>
         {txs.length === 0 ? (
-          <div>Aucune transaction dans cette catégorie ce mois-ci.</div>
+          <div>{t("Aucune transaction dans cette catégorie ce mois-ci.")}</div>
         ) : txs.map((t) => (
           <div key={t.id} style={{ display: "flex", gap: 10, padding: "3px 0", borderBottom: "1px dotted var(--rule)" }}>
             <span style={{ width: 84, flexShrink: 0 }}>{t.date || "—"}</span>
@@ -2015,7 +2349,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
               <input
                 autoFocus
                 className="title-edit-input"
-                aria-label="Nom du foyer"
+                aria-label={t("Nom du foyer")}
                 value={nameDraft}
                 onChange={(e) => setNameDraft(e.target.value)}
                 onBlur={commitNameEdit}
@@ -2025,23 +2359,24 @@ function BudgetTracker({ household, onLogout, onRename }) {
                 }}
               />
             ) : (
-              <button className="brand" title="Cliquer pour renommer le foyer" onClick={() => { setNameDraft(household.name); setEditingName(true); }}>{household.name}</button>
+              <button className="brand" title={t("Cliquer pour renommer le foyer")} onClick={() => { setNameDraft(household.name); setEditingName(true); }}>{household.name}</button>
             )}
-            <span className="brand-sub">budget du foyer</span>
+            <span className="brand-sub">{t("budget du foyer")}</span>
           </div>
           <nav className="section-nav" aria-label="Sections">
-            <button className={view === "home" ? "active" : ""} onClick={() => goTo("home")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7"></path><path d="M5 10v10h14V10"></path></svg>Accueil</button>
-            <button className={view === "depenses" ? "active" : ""} onClick={() => goTo("depenses")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="15" rx="2"></rect><path d="M3 10h18"></path><path d="M8 3v4M16 3v4"></path></svg>Dépenses</button>
-            <button className={view === "epargne" ? "active" : ""} onClick={() => setView("epargne")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg>Épargne</button>
+            <button className={view === "home" ? "active" : ""} onClick={() => goTo("home")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7"></path><path d="M5 10v10h14V10"></path></svg>{t("Accueil")}</button>
+            <button className={view === "depenses" ? "active" : ""} onClick={() => goTo("depenses")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="15" rx="2"></rect><path d="M3 10h18"></path><path d="M8 3v4M16 3v4"></path></svg>{t("Dépenses")}</button>
+            <button className={view === "epargne" ? "active" : ""} onClick={() => setView("epargne")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg>{t("Épargne")}</button>
           </nav>
           <div className="appbar-actions">
             <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={handleCsvFile} style={{ display: "none" }} />
-            <span className="save-pill">{saveState === "saving" ? "Enregistrement…" : saveState === "error" ? "⚠ Erreur d'enregistrement" : "✓ Enregistré"}</span>
-            <button className="reset-btn" onClick={undo} disabled={undoCount === 0} style={{ opacity: undoCount === 0 ? 0.45 : 1, cursor: undoCount === 0 ? "default" : "pointer" }} title="Annuler la dernière modification (Ctrl+Z / ⌘Z)">
-              ↶ Annuler{undoCount > 0 ? ` (${undoCount})` : ""}
+            <LangSwitch lang={lang} onChange={onLang} />
+            <span className="save-pill">{t(saveState === "saving" ? "Enregistrement…" : saveState === "error" ? "⚠ Erreur d'enregistrement" : "✓ Enregistré")}</span>
+            <button className="reset-btn" onClick={undo} disabled={undoCount === 0} style={{ opacity: undoCount === 0 ? 0.45 : 1, cursor: undoCount === 0 ? "default" : "pointer" }} title={t("Annuler la dernière modification (Ctrl+Z / ⌘Z)")}>
+              {t("↶ Annuler")}{undoCount > 0 ? ` (${undoCount})` : ""}
             </button>
-            <span className="invite-pill">Code : <span className="invite-code">{household.invite_code}</span></span>
-            <button className="logout-btn" onClick={onLogout}>Se déconnecter</button>
+            <span className="invite-pill">{t("Code :")} <span className="invite-code">{household.invite_code}</span></span>
+            <button className="logout-btn" onClick={onLogout}>{t("Se déconnecter")}</button>
           </div>
         </div>
       </header>
@@ -2049,49 +2384,49 @@ function BudgetTracker({ household, onLogout, onRename }) {
       {importSummary && (
         <div className="import-summary" style={{ maxWidth: 1080, margin: "0 auto 18px", padding: "12px 16px", borderRadius: 12, background: "var(--paper)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, border: "1px solid var(--rule)" }}>
           <span>{importSummary}</span>
-          <button className="add-line" style={{ display: "inline", padding: 0, whiteSpace: "nowrap" }} onClick={() => setImportSummary(null)}>Fermer ✕</button>
+          <button className="add-line" style={{ display: "inline", padding: 0, whiteSpace: "nowrap" }} onClick={() => setImportSummary(null)}>{t("Fermer ✕")}</button>
         </div>
       )}
 
       {view === "home" && (<React.Fragment>
         <div className="home-hello">
-          <h1>{new Date().getHours() < 18 ? "Bonjour." : "Bonsoir."} <em>Voici {(curMonthLabel || "").toLowerCase().replace(/ \d{4}$/, "")}.</em></h1>
+          <h1>{t(new Date().getHours() < 18 ? "Bonjour." : "Bonsoir.")} <em>{t("Voici {m}.", { m: monthInText(curMonthLabel).replace(/ \d{4}$/, "") })}</em></h1>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button className="month-action" onClick={() => { setView("depenses"); csvInputRef.current && csvInputRef.current.click(); }}>↑ Importer un relevé</button>
-            <button className="month-action primary" onClick={() => { setView("depenses"); addManualTransaction(selectedMonth); setShowTransactions(true); }}>+ Ajouter une dépense</button>
+            <button className="month-action" onClick={() => { setView("depenses"); csvInputRef.current && csvInputRef.current.click(); }}>{t("↑ Importer un relevé")}</button>
+            <button className="month-action primary" onClick={() => { setView("depenses"); addManualTransaction(selectedMonth); setShowTransactions(true); }}>{t("+ Ajouter une dépense")}</button>
           </div>
         </div>
         <div className="home-grid">
           <button className="home-card sand" onClick={() => goTo("depenses")}>
-            <span className="home-kicker"><span>Dépenses · {curMonthLabel}</span><span>Ouvrir →</span></span>
+            <span className="home-kicker"><span>{t("Dépenses · {m}", { m: curMonthLabel })}</span><span>{t("Ouvrir →")}</span></span>
             <span className="home-big">{fmt(Math.round(curActualTotal))}</span>
-            <span className="home-line">dépensés sur un budget de <strong style={{ color: "var(--ink)" }}>{fmt(Math.round(monthBudgetTotal))}</strong></span>
+            <span className="home-line">{t("dépensés sur un budget de")} <strong style={{ color: "var(--ink)" }}>{fmt(Math.round(monthBudgetTotal))}</strong></span>
             <span className="bar-track" style={{ background: "rgba(27,30,33,0.10)" }}><span className={"bar-fill " + (monthBudgetTotal > 0 && Math.abs(curActualTotal - monthBudgetTotal) < 0.5 ? "reached" : curActualTotal > monthBudgetTotal ? "over" : "")} style={{ display: "block", width: Math.min(100, monthBudgetTotal > 0 ? (curActualTotal / monthBudgetTotal) * 100 : 0) + "%" }}></span></span>
             <span style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 14, flexWrap: "wrap" }}>
               {monthBudgetTotal > 0 && Math.abs(curActualTotal - monthBudgetTotal) < 0.5
-                ? <strong style={{ color: "var(--gold)" }}>Budget atteint</strong>
+                ? <strong style={{ color: "var(--gold)" }}>{t("Budget atteint")}</strong>
                 : curActualTotal > monthBudgetTotal
-                ? <strong style={{ color: "var(--red)" }}>Budget dépassé de {fmt(Math.round(curActualTotal - monthBudgetTotal))}</strong>
-                : <strong style={{ color: "var(--green)" }}>Il reste {fmt(Math.round(monthBudgetTotal - curActualTotal))} de budget</strong>}
-              <span style={{ color: "var(--ink-soft)" }}>{overCount} poste(s) au-dessus</span>
+                ? <strong style={{ color: "var(--red)" }}>{t("Budget dépassé de {amt}", { amt: fmt(Math.round(curActualTotal - monthBudgetTotal)) })}</strong>
+                : <strong style={{ color: "var(--green)" }}>{t("Il reste {amt} de budget", { amt: fmt(Math.round(monthBudgetTotal - curActualTotal)) })}</strong>}
+              <span style={{ color: "var(--ink-soft)" }}>{t("{n} poste(s) au-dessus", { n: overCount })}</span>
             </span>
             <span className="home-stats">
-              <span><span className="hero-label" style={{ display: "block" }}>Revenus</span><span className="hero-num" style={{ fontSize: 18 }}>{fmt(Math.round(curIncomeTotal))}</span></span>
-              <span><span className="hero-label" style={{ display: "block" }}>Épargné</span><span className="hero-num" style={{ fontSize: 18 }}>{fmt(Math.round(curSavings))}</span></span>
-              <span><span className="hero-label" style={{ display: "block" }}>Reste</span><span className="hero-num" style={{ fontSize: 18, color: curRestant >= 0 ? "var(--amber)" : "var(--red)" }}>{fmt(Math.round(curRestant))}</span></span>
+              <span><span className="hero-label" style={{ display: "block" }}>{t("Revenus")}</span><span className="hero-num" style={{ fontSize: 18 }}>{fmt(Math.round(curIncomeTotal))}</span></span>
+              <span><span className="hero-label" style={{ display: "block" }}>{t("Épargné")}</span><span className="hero-num" style={{ fontSize: 18 }}>{fmt(Math.round(curSavings))}</span></span>
+              <span><span className="hero-label" style={{ display: "block" }}>{t("Reste")}</span><span className="hero-num" style={{ fontSize: 18, color: curRestant >= 0 ? "var(--amber)" : "var(--red)" }}>{fmt(Math.round(curRestant))}</span></span>
             </span>
           </button>
           <button className="home-card" onClick={() => setView("epargne")}>
-            <span className="home-kicker"><span>Épargne · {savingsList.length} compte(s)</span><span>Ouvrir →</span></span>
+            <span className="home-kicker"><span>{t("Épargne · {n} compte(s)", { n: savingsList.length })}</span><span>{t("Ouvrir →")}</span></span>
             <span className="home-big" style={{ color: "var(--ink)" }}>{fmt(Math.round(savingsTotal))}</span>
             {homeSav && homeSav.change !== null
-              ? <span className="home-line"><strong style={{ color: homeSav.change >= 0 ? "var(--green)" : "var(--red)" }}>{homeSav.change >= 0 ? "+" : ""}{fmt(Math.round(homeSav.change))}</strong> en {homeSav.label.toLowerCase()} sur {homeSav.name}</span>
-              : <span className="home-line">{savingsList.length ? "Total de vos comptes d'épargne" : "Ajoutez vos comptes d'épargne pour suivre leur solde"}</span>}
+              ? <span className="home-line"><strong style={{ color: homeSav.change >= 0 ? "var(--green)" : "var(--red)" }}>{homeSav.change >= 0 ? "+" : ""}{fmt(Math.round(homeSav.change))}</strong> {t("en {m} sur {acc}", { m: monthInText(homeSav.label), acc: homeSav.name })}</span>
+              : <span className="home-line">{t(savingsList.length ? "Total de vos comptes d'épargne" : "Ajoutez vos comptes d'épargne pour suivre leur solde")}</span>}
             {homeSpark && <svg width="100%" height="96" viewBox="0 0 500 96" preserveAspectRatio="none" aria-hidden="true"><polygon points={homeSpark + " 500,96 0,96"} fill="var(--blue-soft)"></polygon><polyline points={homeSpark} fill="none" stroke="var(--gold)" strokeWidth="3" strokeLinejoin="round"></polyline></svg>}
             <span style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
               {savingsList.map((a) => a.last
                 ? <span key={a.key} className="chip">{a.acc.label} · {fmt(Math.round(a.last.balance))}</span>
-                : <span key={a.key} className="chip dashed">{a.acc.label} · à compléter</span>)}
+                : <span key={a.key} className="chip dashed">{a.acc.label} · {t("à compléter")}</span>)}
             </span>
           </button>
         </div>
@@ -2100,22 +2435,22 @@ function BudgetTracker({ household, onLogout, onRename }) {
       {view === "epargne" && (<React.Fragment>
         <input ref={savingsInputRef} type="file" accept=".csv,.pdf,text/csv,application/pdf" onChange={handleSavingsFile} style={{ display: "none" }} />
         <div className="month-bar">
-          <div className="acc-pills" role="tablist" aria-label="Comptes d'épargne">
+          <div className="acc-pills" role="tablist" aria-label={t("Comptes d'épargne")}>
             {savingsList.map((a) => (
               <button key={a.key} role="tab" aria-selected={curAccount && a.key === curAccount.key} className={"acc-pill" + (curAccount && a.key === curAccount.key ? " active" : "")} onClick={() => setSelectedAccount(a.key)}>
                 {a.acc.label}<span className="m">{a.last ? fmt(Math.round(a.last.balance)) : "—"}</span>
               </button>
             ))}
-            <button className="acc-pill" style={{ borderStyle: "dashed", fontWeight: 500 }} onClick={addSavingsAccount}>+ Compte</button>
+            <button className="acc-pill" style={{ borderStyle: "dashed", fontWeight: 500 }} onClick={addSavingsAccount}>{t("+ Compte")}</button>
           </div>
-          <span style={{ marginLeft: "auto", fontSize: 14, color: "var(--ink-soft)" }}>Total épargne <strong style={{ fontFamily: "var(--font-mono)", color: "var(--ink)" }}>{fmt(savingsTotal)}</strong></span>
-          <button className="month-action primary" onClick={() => savingsInputRef.current && savingsInputRef.current.click()} title="Importer le relevé PDF (LCL) ou l'export CSV d'un compte d'épargne : les opérations et le solde sont lus automatiquement">↑ Importer un relevé (PDF ou CSV)</button>
+          <span style={{ marginLeft: "auto", fontSize: 14, color: "var(--ink-soft)" }}>{t("Total épargne")} <strong style={{ fontFamily: "var(--font-mono)", color: "var(--ink)" }}>{fmt(savingsTotal)}</strong></span>
+          <button className="month-action primary" onClick={() => savingsInputRef.current && savingsInputRef.current.click()} title={t("Importer le relevé PDF (LCL) ou l'export CSV d'un compte d'épargne : les opérations et le solde sont lus automatiquement")}>{t("↑ Importer un relevé (PDF ou CSV)")}</button>
         </div>
 
         {!curAccount ? (
           <div className="panel">
             <div className="import-hint" style={{ padding: 16 }}>
-              Aucun compte d'épargne pour l'instant. Cliquez sur « + Ajouter un compte » pour en créer un et saisir son solde chaque mois, ou importez l'export CSV d'un compte.
+              {t("Aucun compte d'épargne pour l'instant. Cliquez sur « + Compte » pour en créer un et saisir son solde chaque mois, ou importez le relevé d'un compte.")}
             </div>
           </div>
         ) : (() => {
@@ -2129,24 +2464,24 @@ function BudgetTracker({ household, onLogout, onRename }) {
               <div className="panel" style={{ padding: "26px 30px", display: "flex", flexDirection: "column", gap: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <span className="hero-kicker">{acc.label} · {acc.manual ? "saisie manuelle" : "importé"}</span>
+                    <span className="hero-kicker">{acc.label} · {t(acc.manual ? "saisie manuelle" : "importé")}</span>
                     <span className="hero-big" style={{ color: "var(--ink)" }}>{last ? fmt(Math.round(last.balance)) : "—"}</span>
                     <span style={{ fontSize: 15, color: "var(--ink-soft)" }}>
-                      {last ? `fin ${last.label.toLowerCase()}` : "Saisissez un premier solde ci-dessous"}
-                      {last && prevBal !== null && <React.Fragment> · <strong style={{ color: last.balance - prevBal >= 0 ? "var(--green)" : "var(--red)" }}>{last.balance - prevBal >= 0 ? "+" : ""}{fmt(Math.round(last.balance - prevBal))}</strong> ce mois</React.Fragment>}
-                      {first && last && first !== last && <React.Fragment> · <strong style={{ color: last.balance - first.balance >= 0 ? "var(--green)" : "var(--red)" }}>{last.balance - first.balance >= 0 ? "+" : ""}{fmt(Math.round(last.balance - first.balance))}</strong> depuis {first.label.toLowerCase()}</React.Fragment>}
+                      {last ? t("fin {m}", { m: monthInText(last.label) }) : t("Saisissez un premier solde ci-dessous")}
+                      {last && prevBal !== null && <React.Fragment> · <strong style={{ color: last.balance - prevBal >= 0 ? "var(--green)" : "var(--red)" }}>{last.balance - prevBal >= 0 ? "+" : ""}{fmt(Math.round(last.balance - prevBal))}</strong> {t("ce mois")}</React.Fragment>}
+                      {first && last && first !== last && <React.Fragment> · <strong style={{ color: last.balance - first.balance >= 0 ? "var(--green)" : "var(--red)" }}>{last.balance - first.balance >= 0 ? "+" : ""}{fmt(Math.round(last.balance - first.balance))}</strong> {t("depuis {m}", { m: monthInText(first.label) })}</React.Fragment>}
                     </span>
                   </div>
-                  {!acc.manual && fromBank && <span className="verified">✓ Solde lu sur le relevé</span>}
+                  {!acc.manual && fromBank && <span className="verified">{t("✓ Solde lu sur le relevé")}</span>}
                 </div>
                 {charted.length > 1 && <SavingsBalanceChart data={charted} />}
                 <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12 }}>
-                  <button className="btn-link" style={{ marginTop: 0 }} onClick={() => renameSavingsAccount(key)}>✎ Renommer le compte</button>
-                  <button className="btn-link" style={{ marginTop: 0, color: "var(--red)" }} onClick={() => removeSavingsAccount(key)}>✕ Supprimer le compte</button>
+                  <button className="btn-link" style={{ marginTop: 0 }} onClick={() => renameSavingsAccount(key)}>{t("✎ Renommer le compte")}</button>
+                  <button className="btn-link" style={{ marginTop: 0, color: "var(--red)" }} onClick={() => removeSavingsAccount(key)}>{t("✕ Supprimer le compte")}</button>
                 </div>
               </div>
               <div className="panel" style={{ padding: "22px 24px", display: "flex", flexDirection: "column" }}>
-                <h2 style={{ margin: "0 0 6px", fontFamily: "var(--font-display)", fontSize: 21, fontWeight: 600 }}>{recentMonth ? monthKeyLabel(recentMonth) : "Comment le mettre à jour"}</h2>
+                <h2 style={{ margin: "0 0 6px", fontFamily: "var(--font-display)", fontSize: 21, fontWeight: 600 }}>{recentMonth ? monthKeyLabel(recentMonth) : t("Comment le mettre à jour")}</h2>
                 {recentMonth ? recent.map((e) => (
                   <div key={e.id} style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--rule)" }}>
                     <span style={{ width: 46, flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--ink-soft)" }}>{e.date.slice(8, 10)}/{e.date.slice(5, 7)}</span>
@@ -2155,23 +2490,23 @@ function BudgetTracker({ household, onLogout, onRename }) {
                   </div>
                 )) : (
                   <div className="import-hint" style={{ fontSize: 13, lineHeight: 1.6 }}>
-                    Tapez le solde de fin de mois dans le tableau ci-dessous, ou importez le relevé PDF / CSV du compte : les opérations et le solde seront lus automatiquement.
+                    {t("Tapez le solde de fin de mois dans le tableau ci-dessous, ou importez le relevé PDF / CSV du compte : les opérations et le solde seront lus automatiquement.")}
                   </div>
                 )}
               </div>
             </div>
             <div className="panel">
-              <div className="panel-title">Mois par mois</div>
+              <div className="panel-title">{t("Mois par mois")}</div>
               <div style={{ overflowX: "auto", padding: "8px 16px 12px" }}>
                 {acc.manual ? (
                   <table style={{ width: "100%" }}>
-                    <thead><tr><th>Mois</th><th className="num">Solde fin de mois</th><th className="num">Variation</th></tr></thead>
+                    <thead><tr><th>{t("Mois")}</th><th className="num">{t("Solde fin de mois")}</th><th className="num">{t("Variation")}</th></tr></thead>
                     <tbody>
                       {rows.map((r) => (
                         <tr key={r.key}>
                           <td>{r.label}</td>
                           <td className="num">
-                            <input type="number" step="0.01" className="sav-balance-input" placeholder="—" aria-label={`Solde ${r.label}`}
+                            <input type="number" step="0.01" className="sav-balance-input" placeholder="—" aria-label={t("Solde {m}", { m: r.label })}
                               value={acc.balances[r.key] ?? ""}
                               onChange={(e) => setManualBalance(key, r.key, e.target.value === "" ? "" : parseFloat(e.target.value))} />
                           </td>
@@ -2182,7 +2517,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
                   </table>
                 ) : (
                   <table style={{ width: "100%" }}>
-                    <thead><tr><th>Mois</th><th className="num">Entrées</th><th className="num">Sorties</th><th className="num">dont intérêts</th><th className="num">Solde fin de mois</th><th className="num">Variation</th></tr></thead>
+                    <thead><tr><th>{t("Mois")}</th><th className="num">{t("Entrées")}</th><th className="num">{t("Sorties")}</th><th className="num">{t("dont intérêts")}</th><th className="num">{t("Solde fin de mois")}</th><th className="num">{t("Variation")}</th></tr></thead>
                     <tbody>
                       {rows.map((r) => (
                         <tr key={r.key}>
@@ -2199,11 +2534,11 @@ function BudgetTracker({ household, onLogout, onRename }) {
                 )}
               </div>
               <div className="import-hint" style={{ padding: "0 16px 12px" }}>
-                {acc.manual
-                  ? "Saisissez le solde à la fin de chaque mois. Les mois sont ceux de « Suivi des dépenses mensuelles » : ajouter un mois là-bas l'ajoute ici."
+                {t(acc.manual
+                  ? "Saisissez le solde à la fin de chaque mois. Les mois sont ceux de « Dépenses » : ajouter un mois là-bas l'ajoute ici."
                   : fromBank
                     ? "Pour mettre à jour ce compte, importez un relevé plus récent : seules les nouvelles opérations sont ajoutées."
-                    : "Le fichier ne contient pas de colonne de solde : le solde est calculé en additionnant les opérations à partir de 0."}
+                    : "Le fichier ne contient pas de colonne de solde : le solde est calculé en additionnant les opérations à partir de 0.")}
               </div>
             </div>
           </React.Fragment>);
@@ -2212,49 +2547,49 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
       {view === "depenses" && (<React.Fragment>
       <div className="month-bar">
-        <button className="month-nav" title="Mois précédent" disabled={curIdx <= 0} onClick={() => setSelectedMonth(sortedMonths[curIdx - 1].id)}>‹</button>
-        <select aria-label="Choisir le mois" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
-          {sortedMonths.map((m) => (<option key={m.id} value={m.id}>{m.label}</option>))}
+        <button className="month-nav" title={t("Mois précédent")} disabled={curIdx <= 0} onClick={() => setSelectedMonth(sortedMonths[curIdx - 1].id)}>‹</button>
+        <select aria-label={t("Choisir le mois")} value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
+          {sortedMonths.map((m) => (<option key={m.id} value={m.id}>{displayMonth(m.label)}</option>))}
         </select>
-        <button className="month-nav" title="Mois suivant" disabled={curIdx >= sortedMonths.length - 1} onClick={() => setSelectedMonth(sortedMonths[curIdx + 1].id)}>›</button>
-        <button className="month-action" onClick={addMonth}>+ Ajouter un mois</button>
-        <button className="month-action" onClick={() => renameMonth(selectedMonth)}>✎ Renommer</button>
-        <button className="month-action danger" disabled={months.length <= 1} onClick={() => removeMonth(selectedMonth)}>✕ Supprimer</button>
-        <button className="month-action primary" style={{ marginLeft: "auto" }} onClick={() => csvInputRef.current && csvInputRef.current.click()} title={`Importer un relevé CSV du compte courant (les lignes vont dans le mois de leur date)`}>
-          ↑ Importer un relevé
+        <button className="month-nav" title={t("Mois suivant")} disabled={curIdx >= sortedMonths.length - 1} onClick={() => setSelectedMonth(sortedMonths[curIdx + 1].id)}>›</button>
+        <button className="month-action" onClick={addMonth}>{t("+ Ajouter un mois")}</button>
+        <button className="month-action" onClick={() => renameMonth(selectedMonth)}>{t("✎ Renommer")}</button>
+        <button className="month-action danger" disabled={months.length <= 1} onClick={() => removeMonth(selectedMonth)}>{t("✕ Supprimer")}</button>
+        <button className="month-action primary" style={{ marginLeft: "auto" }} onClick={() => csvInputRef.current && csvInputRef.current.click()} title={t("Importer un relevé CSV du compte courant (les lignes vont dans le mois de leur date)")}>
+          {t("↑ Importer un relevé")}
         </button>
       </div>
 
-      <section className="hero" aria-label={`Résumé de ${curMonthLabel}`}>
+      <section className="hero" aria-label={t("Résumé de {m}", { m: curMonthLabel })}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <span className="hero-kicker">Reste à la fin du mois</span>
+          <span className="hero-kicker">{t("Reste à la fin du mois")}</span>
           <span className={"hero-big" + (curRestant < 0 ? " neg" : "")}>{fmt(Math.round(curRestant))}</span>
-          <span className="hero-label">revenus − dépenses − épargne</span>
+          <span className="hero-label">{t("revenus − dépenses − épargne")}</span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div><div className="hero-label">Revenus</div><div className="hero-num">{fmt(Math.round(curIncomeTotal))}</div></div>
-          <div><div className="hero-label">Épargné</div><div className="hero-num">{fmt(Math.round(curSavings))}</div></div>
+          <div><div className="hero-label">{t("Revenus")}</div><div className="hero-num">{fmt(Math.round(curIncomeTotal))}</div></div>
+          <div><div className="hero-label">{t("Épargné")}</div><div className="hero-num">{fmt(Math.round(curSavings))}</div></div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div className="hero-label">Dépensé / budget</div>
+          <div className="hero-label">{t("Dépensé / budget")}</div>
           <div className="hero-num">{fmt(Math.round(curActualTotal))} <span style={{ fontSize: 15, color: "var(--ink-soft)" }}>/ {fmt(Math.round(monthBudgetTotal))}</span></div>
           <div className="bar-track"><div className={"bar-fill " + (monthBudgetTotal > 0 && Math.abs(curActualTotal - monthBudgetTotal) < 0.5 ? "reached" : curActualTotal > monthBudgetTotal ? "over" : "")} style={{ width: Math.min(100, monthBudgetTotal > 0 ? (curActualTotal / monthBudgetTotal) * 100 : 0) + "%" }}></div></div>
           <div style={{ fontSize: 13, fontWeight: 700, color: curActualTotal > monthBudgetTotal ? "var(--red)" : "var(--green)" }}>
             {monthBudgetTotal > 0 ? Math.round((curActualTotal / monthBudgetTotal) * 100) + " % · " : ""}
-            {Math.abs(curActualTotal - monthBudgetTotal) < 0.5 ? "budget atteint" : curActualTotal > monthBudgetTotal ? `+${fmt(Math.round(curActualTotal - monthBudgetTotal))} au-dessus` : `${fmt(Math.round(monthBudgetTotal - curActualTotal))} de marge`}
+            {Math.abs(curActualTotal - monthBudgetTotal) < 0.5 ? t("budget atteint") : curActualTotal > monthBudgetTotal ? t("+{amt} au-dessus", { amt: fmt(Math.round(curActualTotal - monthBudgetTotal)) }) : t("{amt} de marge", { amt: fmt(Math.round(monthBudgetTotal - curActualTotal)) })}
           </div>
           {overTop.length > 0 && (
             <div className="over-tags wide-only">
-              <span>surtout</span>
+              <span>{t("surtout")}</span>
               {overTop.map((c) => (
-                <button type="button" key={c.id} className="over-tag" title="Voir les transactions" onClick={() => showInTransactions(c.id)}>{c.name} +{fmt(Math.round(c.spent - c.budget))}</button>
+                <button type="button" key={c.id} className="over-tag" title={t("Voir les transactions")} onClick={() => showInTransactions(c.id)}>{c.name} +{fmt(Math.round(c.spent - c.budget))}</button>
               ))}
             </div>
           )}
         </div>
         {overTop.length > 0 && (
           <div className="over-tags narrow-only">
-            <span>surtout</span>
+            <span>{t("surtout")}</span>
             {overTop.map((c) => (
               <button type="button" key={c.id} className="over-tag" onClick={() => showInTransactions(c.id)}>{c.name} +{fmt(Math.round(c.spent - c.budget))}</button>
             ))}
@@ -2264,13 +2599,13 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
       <div className="panel">
         <div className="panel-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span>Par catégorie</span>
-          <button className="month-action" style={{ padding: "7px 12px", fontSize: 12 }} onClick={() => setEditBudgets((v) => !v)}>{editBudgets ? "✓ Terminé" : "✎ Modifier les budgets"}</button>
+          <span>{t("Par catégorie")}</span>
+          <button className="month-action" style={{ padding: "7px 12px", fontSize: 12 }} onClick={() => setEditBudgets((v) => !v)}>{t(editBudgets ? "✓ Terminé" : "✎ Modifier les budgets")}</button>
         </div>
         {editBudgets ? (<div style={{ padding: "8px 12px 4px" }}><React.Fragment>
       <div className="table-wrap">
         <table>
-          <thead><tr><th style={{ width: 24 }}></th><th>Catégorie</th><th className="num">Budget mensuel</th><th className="num">Réel ({curMonthLabel})</th><th className="num">Écart</th><th></th></tr></thead>
+          <thead><tr><th style={{ width: 24 }}></th><th>{t("Catégorie")}</th><th className="num">{t("Budget mensuel")}</th><th className="num">{t("Réel ({m})", { m: curMonthLabel })}</th><th className="num">{t("Écart")}</th><th></th></tr></thead>
           <tbody>
             {expenseCategories.map((c, idx) => {
               const total = categoryTotal(selectedMonth, c.id);
@@ -2298,13 +2633,13 @@ function BudgetTracker({ household, onLogout, onRename }) {
                         onDragStart={() => setDragCategoryId(c.id)}
                         onDragEnd={() => { setDragCategoryId(null); setDragOverCategoryId(null); }}
                         style={{ cursor: "grab", color: "var(--ink-soft)", fontSize: 14, userSelect: "none" }}
-                        title="Glisser pour réordonner"
+                        title={t("Glisser pour réordonner")}
                       >
                         ⠿
                       </span>
                       <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-                        <button className="icon-btn" style={{ color: "var(--ink-soft)", fontSize: 10, lineHeight: 1, padding: 0, opacity: idx === 0 ? 0.3 : 1 }} disabled={idx === 0} onClick={() => moveCategory(c.id, -1)} title="Monter">▲</button>
-                        <button className="icon-btn" style={{ color: "var(--ink-soft)", fontSize: 10, lineHeight: 1, padding: 0, opacity: idx === expenseCategories.length - 1 ? 0.3 : 1 }} disabled={idx === expenseCategories.length - 1} onClick={() => moveCategory(c.id, 1)} title="Descendre">▼</button>
+                        <button className="icon-btn" style={{ color: "var(--ink-soft)", fontSize: 10, lineHeight: 1, padding: 0, opacity: idx === 0 ? 0.3 : 1 }} disabled={idx === 0} onClick={() => moveCategory(c.id, -1)} title={t("Monter")}>▲</button>
+                        <button className="icon-btn" style={{ color: "var(--ink-soft)", fontSize: 10, lineHeight: 1, padding: 0, opacity: idx === expenseCategories.length - 1 ? 0.3 : 1 }} disabled={idx === expenseCategories.length - 1} onClick={() => moveCategory(c.id, 1)} title={t("Descendre")}>▼</button>
                       </div>
                     </div>
                   </td>
@@ -2312,7 +2647,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
                     <input type="text" value={c.name} onChange={(e) => renameCategory(c.id, e.target.value)} />
                     {curActualTotal > 0 && total !== 0 && (
                       <div style={{ fontSize: 10, color: "var(--ink-soft)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
-                        {Math.round((total / curActualTotal) * 100)}% des dépenses du mois
+                        {t("{pct}% des dépenses du mois", { pct: Math.round((total / curActualTotal) * 100) })}
                       </div>
                     )}
                   </td>
@@ -2322,7 +2657,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
                     {fmt(diff)}
                     {budget > 0 && (
                       <React.Fragment>
-                        <div className="budget-bar-track" style={{ marginLeft: "auto" }} title={`${Math.round(pct)}% du budget`}>
+                        <div className="budget-bar-track" style={{ marginLeft: "auto" }} title={t("{pct}% du budget", { pct: Math.round(pct) })}>
                           <div className="budget-bar-fill" style={{ width: Math.min(100, pct) + "%", background: barColor }} />
                         </div>
                         <div style={{ fontSize: 10, color: barColor, fontFamily: "var(--font-mono)" }}>{Math.round(pct)}%</div>
@@ -2340,21 +2675,21 @@ function BudgetTracker({ household, onLogout, onRename }) {
             {uncategorizedSpent(selectedMonth) > 0 && (
               <tr>
                 <td></td>
-                <td style={{ color: "var(--red)", fontStyle: "italic" }} title="Dépenses sans catégorie — à trier dans « Transactions ». Elles comptent dans le total réel.">Non catégorisé (à trier)</td>
+                <td style={{ color: "var(--red)", fontStyle: "italic" }} title={t("Dépenses sans catégorie — à trier dans « Transactions ». Elles comptent dans le total réel.")}>{t("Non catégorisé (à trier)")}</td>
                 <td className="num">—</td>
                 <td className="num" style={{ color: "var(--red)" }}>{fmt(uncategorizedSpent(selectedMonth))}</td>
                 <td></td>
                 <td></td>
               </tr>
             )}
-            <tr><td></td><td>Total</td><td className="num">{fmt(monthBudgetTotal)}</td><td className="num">{fmt(curActualTotal)}</td><td className={"num " + (monthBudgetTotal - curActualTotal >= 0 ? "diff-pos" : "diff-neg")}>{fmt(monthBudgetTotal - curActualTotal)}</td><td></td></tr>
+            <tr><td></td><td>{t("Total")}</td><td className="num">{fmt(monthBudgetTotal)}</td><td className="num">{fmt(curActualTotal)}</td><td className={"num " + (monthBudgetTotal - curActualTotal >= 0 ? "diff-pos" : "diff-neg")}>{fmt(monthBudgetTotal - curActualTotal)}</td><td></td></tr>
           </tfoot>
         </table>
-        <button className="add-line" onClick={addCategory}>+ Ajouter une catégorie</button>
+        <button className="add-line" onClick={addCategory}>{t("+ Ajouter une catégorie")}</button>
       </div>
       <div className="import-hint" style={{ padding: "4px 8px 10px" }}>
-        Le montant « Réel » est calculé automatiquement à partir des transactions.
-        {(salaireCat || epargneCat) && " Salaire et Épargne n'apparaissent pas ici : voir « Revenus » et « Épargne mise de côté »."}
+        {t("Le montant « Réel » est calculé automatiquement à partir des transactions.")}
+        {(salaireCat || epargneCat) && t(" Salaire et Épargne n'apparaissent pas ici : voir « Revenus » et « Épargné ».")}
       </div>
       </React.Fragment></div>) : (
           <div className="cat-list">
@@ -2367,11 +2702,11 @@ function BudgetTracker({ household, onLogout, onRename }) {
             ))}
             {uncategorizedSpent(selectedMonth) > 0 && (
               <div className="cat-item">
-                <div className="cat-head"><span className="cat-name" style={{ color: "var(--red)" }}>Non catégorisé (à trier)</span><span className="cat-amt"><strong>{fmt(Math.round(uncategorizedSpent(selectedMonth)))}</strong></span></div>
-                <span className="cat-state none">Compté dans le total — classez-les dans « Transactions »</span>
+                <div className="cat-head"><span className="cat-name" style={{ color: "var(--red)" }}>{t("Non catégorisé (à trier)")}</span><span className="cat-amt"><strong>{fmt(Math.round(uncategorizedSpent(selectedMonth)))}</strong></span></div>
+                <span className="cat-state none">{t("Compté dans le total — classez-les dans « Transactions »")}</span>
               </div>
             )}
-            {catRows.length === 0 && <div className="import-hint" style={{ padding: "14px 0" }}>Aucune dépense ce mois-ci pour l'instant.</div>}
+            {catRows.length === 0 && <div className="import-hint" style={{ padding: "14px 0" }}>{t("Aucune dépense ce mois-ci pour l'instant.")}</div>}
           </div>
         )}
       </div>
@@ -2386,14 +2721,14 @@ function BudgetTracker({ household, onLogout, onRename }) {
         return (
           <div className="panel money-card">
             <div className="money-col">
-              <span className="money-kicker">Revenus · {curMonthLabel}</span>
+              <span className="money-kicker">{t("Revenus · {m}", { m: curMonthLabel })}</span>
               <span className="money-big in">{fmt(Math.round(curIncomeTotal))}</span>
               <div className="money-lines">
                 {salaireCat && (
                   <React.Fragment>
                     <button type="button" className="money-line auto" onClick={() => setOpenAutoDetails((o) => ({ ...o, salaire: !o.salaire }))}
-                      title={`Total automatique des transactions catégorisées « ${salaireCat.name} »`}>
-                      <span>{openAutoDetails.salaire ? "▾" : "▸"} {cap(salaireCat.name)} <span className="money-meta">· {plural(countIn(salaireCat.id), "virement")}, auto</span></span>
+                      title={t("Total automatique des transactions catégorisées « {cat} »", { cat: salaireCat.name })}>
+                      <span>{openAutoDetails.salaire ? "▾" : "▸"} {cap(salaireCat.name)} <span className="money-meta">· {plural(countIn(salaireCat.id), t("virement"))}, {t("auto")}</span></span>
                       <span className="money-amt">{fmt(salaryFromTransactions(selectedMonth))}</span>
                     </button>
                     {openAutoDetails.salaire && renderAutoDetails(salaireCat.id, -1)}
@@ -2401,25 +2736,25 @@ function BudgetTracker({ household, onLogout, onRename }) {
                 )}
                 {shownIncome.map((l) => (
                   <div className="money-line" key={l.id}>
-                    <input type="text" aria-label="Libellé du revenu" value={l.label} onChange={(e) => updateIncomeLine(selectedMonth, l.id, "label", e.target.value)} />
+                    <input type="text" aria-label={t("Libellé du revenu")} value={l.label} onChange={(e) => updateIncomeLine(selectedMonth, l.id, "label", e.target.value)} />
                     <span className="money-edit">
-                      <input type="number" aria-label="Montant" value={l.amount} onChange={(e) => updateIncomeLine(selectedMonth, l.id, "amount", parseFloat(e.target.value) || 0)} />
-                      <button className="icon-btn" aria-label="Supprimer" onClick={() => removeIncomeLine(selectedMonth, l.id)}>✕</button>
+                      <input type="number" aria-label={t("Montant")} value={l.amount} onChange={(e) => updateIncomeLine(selectedMonth, l.id, "amount", parseFloat(e.target.value) || 0)} />
+                      <button className="icon-btn" aria-label={t("Supprimer")} onClick={() => removeIncomeLine(selectedMonth, l.id)}>✕</button>
                     </span>
                   </div>
                 ))}
               </div>
-              <button className="add-line" onClick={() => addIncomeLine(selectedMonth)}>+ Ajouter un revenu</button>
+              <button className="add-line" onClick={() => addIncomeLine(selectedMonth)}>{t("+ Ajouter un revenu")}</button>
             </div>
             <div className="money-col">
-              <span className="money-kicker">Épargné · {curMonthLabel}</span>
+              <span className="money-kicker">{t("Épargné · {m}", { m: curMonthLabel })}</span>
               <span className="money-big sav">{fmt(Math.round(curSavings))}</span>
               <div className="money-lines">
                 {epargneCat && (
                   <React.Fragment>
                     <button type="button" className="money-line auto" onClick={() => setOpenAutoDetails((o) => ({ ...o, epargne: !o.epargne }))}
-                      title={`Total automatique des transactions catégorisées « ${epargneCat.name} »`}>
-                      <span>{openAutoDetails.epargne ? "▾" : "▸"} Virements épargne <span className="money-meta">· {plural(countIn(epargneCat.id), "virement")}, auto</span></span>
+                      title={t("Total automatique des transactions catégorisées « {cat} »", { cat: epargneCat.name })}>
+                      <span>{openAutoDetails.epargne ? "▾" : "▸"} {t("Virements épargne")} <span className="money-meta">· {plural(countIn(epargneCat.id), t("virement"))}, {t("auto")}</span></span>
                       <span className="money-amt">{fmt(curSavingsFromCategory)}</span>
                     </button>
                     {openAutoDetails.epargne && renderAutoDetails(epargneCat.id, 1)}
@@ -2427,19 +2762,19 @@ function BudgetTracker({ household, onLogout, onRename }) {
                 )}
                 {showManualSavings && (
                   <div className="money-line">
-                    <span>Montant manuel</span>
+                    <span>{t("Montant manuel")}</span>
                     <span className="money-edit">
-                      <input type="number" aria-label="Montant épargné (manuel)" value={curManualSavings} autoFocus={curManualSavings === 0}
+                      <input type="number" aria-label={t("Montant épargné (manuel)")} value={curManualSavings} autoFocus={curManualSavings === 0}
                         onChange={(e) => updateSavings(selectedMonth, parseFloat(e.target.value) || 0)} />
-                      <button className="icon-btn" aria-label="Retirer" onClick={() => { updateSavings(selectedMonth, 0); setManualSavingsOpen((o) => ({ ...o, [selectedMonth]: false })); }}>✕</button>
+                      <button className="icon-btn" aria-label={t("Retirer")} onClick={() => { updateSavings(selectedMonth, 0); setManualSavingsOpen((o) => ({ ...o, [selectedMonth]: false })); }}>✕</button>
                     </span>
                   </div>
                 )}
               </div>
               {!showManualSavings && (
-                <button className="add-line" onClick={() => setManualSavingsOpen((o) => ({ ...o, [selectedMonth]: true }))}>+ Ajouter un montant manuel</button>
+                <button className="add-line" onClick={() => setManualSavingsOpen((o) => ({ ...o, [selectedMonth]: true }))}>{t("+ Ajouter un montant manuel")}</button>
               )}
-              {savedPct !== null && curSavings > 0 && <span className="money-note">{savedPct} % des revenus mis de côté</span>}
+              {savedPct !== null && curSavings > 0 && <span className="money-note">{t("{pct} % des revenus mis de côté", { pct: savedPct })}</span>}
             </div>
           </div>
         );
@@ -2447,8 +2782,8 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
       <div className="panel">
         <div className="panel-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setShowRecurringFees((v) => !v)}>
-          <span>Charges récurrentes (prélèvements prévus) — {recurringFees.length}</span>
-          <span style={{ fontSize: 12, color: "var(--gold)" }}>{showRecurringFees ? "Masquer ▲" : "Voir / modifier ▼"}</span>
+          <span>{t("Charges récurrentes (prélèvements prévus) — {n}", { n: recurringFees.length })}</span>
+          <span style={{ fontSize: 12, color: "var(--gold)" }}>{t(showRecurringFees ? "Masquer ▲" : "Voir / modifier ▼")}</span>
         </div>
         {showRecurringFees && (
           <React.Fragment>
@@ -2456,20 +2791,20 @@ function BudgetTracker({ household, onLogout, onRename }) {
               const status = feeStatus(f);
               const catName = categories.find((c) => c.id === f.categoryId)?.name;
               const statusIcon =
-                status === "confirmed" ? <span title={`Confirmé — transaction trouvée dans « ${catName} » ce mois-ci`} style={{ color: "var(--green)" }}>✓</span> :
-                status === "overdue" ? <span title="Le jour est passé mais aucune transaction trouvée dans cette catégorie — pas encore importée, ou en retard" style={{ color: "var(--red)" }}>⚠</span> :
-                status === "upcoming" ? <span title="Pas encore dû ce mois-ci" style={{ color: "var(--gold)" }}>⏳</span> :
-                <span title="Pas encore de transaction correspondante ce mois-ci" style={{ color: "var(--ink-soft)" }}>·</span>;
+                status === "confirmed" ? <span title={t("Confirmé — transaction trouvée dans « {cat} » ce mois-ci", { cat: catName })} style={{ color: "var(--green)" }}>✓</span> :
+                status === "overdue" ? <span title={t("Le jour est passé mais aucune transaction trouvée dans cette catégorie — pas encore importée, ou en retard")} style={{ color: "var(--red)" }}>⚠</span> :
+                status === "upcoming" ? <span title={t("Pas encore dû ce mois-ci")} style={{ color: "var(--gold)" }}>⏳</span> :
+                <span title={t("Pas encore de transaction correspondante ce mois-ci")} style={{ color: "var(--ink-soft)" }}>·</span>;
               return (
                 <div className="row" key={f.id} style={{ gridTemplateColumns: "1fr 90px 140px 110px 32px" }}>
                   <input type="text" value={f.label} onChange={(e) => updateRecurringFee(f.id, "label", e.target.value)} />
                   <input type="number" value={f.amount} onChange={(e) => updateRecurringFee(f.id, "amount", parseFloat(e.target.value) || 0)} />
                   <select value={f.categoryId} onChange={(e) => updateRecurringFee(f.id, "categoryId", e.target.value)} style={{ fontFamily: "var(--font-mono)", fontSize: 12, padding: 4, border: "1px solid var(--rule)", borderRadius: 3, background: "#fff" }}>
-                    <option value="">— Catégorie —</option>
+                    <option value="">{t("— Catégorie —")}</option>
                     {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
                   </select>
                   <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--ink-soft)" }}>
-                    le
+                    {t("le")}
                     <input
                       type="number" min="1" max="31"
                       style={{ width: 40, fontFamily: "var(--font-mono)", fontSize: 12, border: "1px solid var(--rule)", borderRadius: 3, padding: 4, textAlign: "center" }}
@@ -2482,10 +2817,10 @@ function BudgetTracker({ household, onLogout, onRename }) {
                 </div>
               );
             })}
-            <button className="add-line" onClick={addRecurringFee}>+ Ajouter une charge récurrente</button>
+            <button className="add-line" onClick={addRecurringFee}>{t("+ Ajouter une charge récurrente")}</button>
             {recurringFees.length > 0 && (
               <div className="import-hint" style={{ padding: "8px 16px 12px" }}>
-                <strong style={{ color: "var(--green)" }}>{fmt(confirmedTotal)}</strong> confirmée(s) par une vraie transaction ({confirmedFees.length}) · <strong style={{ color: "var(--gold)" }}>{fmt(outstandingTotal)}</strong> pas encore vue(s) ({outstandingFees.length}). Dès qu'une transaction apparaît dans la catégorie liée (import ou saisie manuelle), la charge passe automatiquement en « confirmé ».
+                <strong style={{ color: "var(--green)" }}>{fmt(confirmedTotal)}</strong> {t("confirmée(s) par une vraie transaction ({n})", { n: confirmedFees.length })} · <strong style={{ color: "var(--gold)" }}>{fmt(outstandingTotal)}</strong> {t("pas encore vue(s) ({n}).", { n: outstandingFees.length })} {t("Dès qu'une transaction apparaît dans la catégorie liée (import ou saisie manuelle), la charge passe automatiquement en « confirmé ».")}
               </div>
             )}
           </React.Fragment>
@@ -2494,8 +2829,8 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
       <div className="panel tx-panel" id="tx-panel">
         <div className="panel-title tx-head" onClick={() => setShowTransactions((v) => !v)}>
-          <span>Transactions</span>
-          <span className="tx-head-side">{monthTransactions(selectedMonth).length} ce mois · <span className="tx-toggle">{showTransactions ? "Masquer ▲" : "Voir ▼"}</span></span>
+          <span>{t("Transactions")}</span>
+          <span className="tx-head-side">{t("{n} ce mois", { n: monthTransactions(selectedMonth).length })} · <span className="tx-toggle">{t(showTransactions ? "Masquer ▲" : "Voir ▼")}</span></span>
         </div>
         {showTransactions && (
           <div className="tx-body">
@@ -2525,8 +2860,8 @@ function BudgetTracker({ household, onLogout, onRename }) {
                 date_asc: (a, b) => day(a) - day(b),
                 amount_desc: (a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0),
                 amount_asc: (a, b) => (Number(a.amount) || 0) - (Number(b.amount) || 0),
-                category: (a, b) => (catName(a) || "￿").localeCompare(catName(b) || "￿", "fr") || day(b) - day(a),
-                label: (a, b) => (a.label || "").localeCompare(b.label || "", "fr"),
+                category: (a, b) => (catName(a) || "￿").localeCompare(catName(b) || "￿", LANG) || day(b) - day(a),
+                label: (a, b) => (a.label || "").localeCompare(b.label || "", LANG),
               };
               const sortKey = txSort === "default" ? "date_desc" : txSort;
               const all = everything.filter((tx) => matchesSearch(tx) && matchesCategory(tx));
@@ -2546,7 +2881,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
               const groups = [];
               if (byDate) {
                 const undated = shown.filter((tx) => day(tx) === -Infinity);
-                if (undated.length) groups.push({ key: "none", title: "Sans date", items: undated });
+                if (undated.length) groups.push({ key: "none", title: t("Sans date"), items: undated });
                 shown.forEach((tx) => {
                   const d = day(tx);
                   if (d === -Infinity) return;
@@ -2564,64 +2899,64 @@ function BudgetTracker({ household, onLogout, onRename }) {
                   <div key={tx.id} className={"tx-item" + (open ? " open" : "")}>
                     <button type="button" className="tx-line" title={tx.label} onClick={() => setOpenTx(open ? null : tx.id)}>
                       <span className="tx-name">
-                        {tx.recurring && <span className="tx-rec" title="Récurrente">🔁</span>}
-                        {prettyTxLabel(tx.label) || <em>Sans libellé</em>}
+                        {tx.recurring && <span className="tx-rec" title={t("Récurrente")}>🔁</span>}
+                        {prettyTxLabel(tx.label) || <em>{t("Sans libellé")}</em>}
                       </span>
                       <span
                         className={"tx-chip" + (!cat ? " none" : toCheck(tx) ? " check" : "")}
                         style={cat && !toCheck(tx) ? chipColors(cat.id) : undefined}
-                        title={cat ? CATEGORY_SOURCE_LABELS[tx.categorySource] || "" : "Aucune catégorie"}
+                        title={cat ? t(CATEGORY_SOURCE_LABELS[tx.categorySource] || "") : t("Aucune catégorie")}
                       >
-                        {cat ? cat.name : "Sans catégorie"}{toCheck(tx) ? " ?" : ""}
+                        {cat ? cat.name : t("Sans catégorie")}{toCheck(tx) ? " ?" : ""}
                       </span>
                       <span className={"tx-amt" + (amount < 0 ? " in" : "")}>{amount < 0 ? "+" : amount > 0 ? "−" : ""}{fmtCents(Math.abs(amount))}</span>
                     </button>
                     {open && (
                       <div className="tx-edit">
                         <label className="tx-field tx-f-date">
-                          <span>Date</span>
+                          <span>{t("Date")}</span>
                           <input type="text" value={tx.date} placeholder="2026-09-30" onChange={(e) => updateTransactionField(selectedMonth, tx.id, "date", e.target.value)} />
                         </label>
                         <label className="tx-field tx-f-label">
-                          <span>Libellé</span>
-                          <input type="text" value={tx.label} placeholder="libellé" onChange={(e) => updateTransactionField(selectedMonth, tx.id, "label", e.target.value)} />
+                          <span>{t("Libellé")}</span>
+                          <input type="text" value={tx.label} placeholder={t("libellé")} onChange={(e) => updateTransactionField(selectedMonth, tx.id, "label", e.target.value)} />
                         </label>
                         <label className="tx-field tx-f-amount">
-                          <span>Montant</span>
-                          <input type="number" value={tx.amount} title="Positif = dépense, négatif = argent reçu" onChange={(e) => updateTransactionField(selectedMonth, tx.id, "amount", parseFloat(e.target.value) || 0)} />
+                          <span>{t("Montant")}</span>
+                          <input type="number" value={tx.amount} title={t("Positif = dépense, négatif = argent reçu")} onChange={(e) => updateTransactionField(selectedMonth, tx.id, "amount", parseFloat(e.target.value) || 0)} />
                         </label>
                         <label className="tx-field tx-f-cat">
-                          <span>Catégorie</span>
+                          <span>{t("Catégorie")}</span>
                           <select value={tx.categoryId} onChange={(e) => updateTransactionCategory(selectedMonth, tx.id, e.target.value)}>
-                            <option value="">— Non catégorisé —</option>
+                            <option value="">{t("— Non catégorisé —")}</option>
                             {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
-                            <option value="__new__">+ Nouvelle catégorie…</option>
+                            <option value="__new__">{t("+ Nouvelle catégorie…")}</option>
                           </select>
                         </label>
                         <div className="tx-edit-actions">
                           {toCheck(tx) && (
-                            <button type="button" className="tx-btn confirm" title="La catégorie sera retenue pour ce marchand" onClick={() => updateTransactionCategory(selectedMonth, tx.id, tx.categoryId)}>
-                              ✓ Confirmer « {cat.name} »
+                            <button type="button" className="tx-btn confirm" title={t("La catégorie sera retenue pour ce marchand")} onClick={() => updateTransactionCategory(selectedMonth, tx.id, tx.categoryId)}>
+                              {t("✓ Confirmer « {cat} »", { cat: cat.name })}
                             </button>
                           )}
                           <button type="button" className={"tx-btn" + (tx.recurring ? " on" : "")} onClick={() => toggleRecurring(selectedMonth, tx.id)}
-                            title="Simple repère pour retrouver les dépenses qui reviennent chaque mois (filtre « Récurrentes »)">
-                            🔁 {tx.recurring ? "Récurrente" : "Marquer récurrente"}
+                            title={t("Simple repère pour retrouver les dépenses qui reviennent chaque mois (filtre « Récurrentes »)")}>
+                            🔁 {t(tx.recurring ? "Récurrente" : "Marquer récurrente")}
                           </button>
-                          <button type="button" className="tx-btn danger" onClick={() => { removeTransaction(selectedMonth, tx.id); setOpenTx(null); }}>✕ Supprimer</button>
-                          <button type="button" className="tx-btn" onClick={() => setOpenTx(null)}>Fermer</button>
+                          <button type="button" className="tx-btn danger" onClick={() => { removeTransaction(selectedMonth, tx.id); setOpenTx(null); }}>{t("✕ Supprimer")}</button>
+                          <button type="button" className="tx-btn" onClick={() => setOpenTx(null)}>{t("Fermer")}</button>
                         </div>
                         <div className="tx-edit-hint">
-                          {cat && CATEGORY_SOURCE_LABELS[tx.categorySource] ? CATEGORY_SOURCE_LABELS[tx.categorySource] + " · " : ""}
-                          Montant positif = dépense, négatif = argent reçu.
+                          {cat && CATEGORY_SOURCE_LABELS[tx.categorySource] ? t(CATEGORY_SOURCE_LABELS[tx.categorySource]) + " · " : ""}
+                          {t("Montant positif = dépense, négatif = argent reçu.")}
                         </div>
                       </div>
                     )}
                     {suggestsRecurringFee(tx) && (
                       <div className="tx-note">
-                        Prélèvement — pas encore dans vos charges récurrentes.{" "}
+                        {t("Prélèvement — pas encore dans vos charges récurrentes.")}{" "}
                         <button className="btn-link" style={{ marginTop: 0, fontSize: 12 }} onClick={() => createFeeFromTransaction(selectedMonth, tx)}>
-                          + Ajouter comme charge récurrente
+                          {t("+ Ajouter comme charge récurrente")}
                         </button>
                       </div>
                     )}
@@ -2642,40 +2977,40 @@ function BudgetTracker({ household, onLogout, onRename }) {
                   <input
                     type="search"
                     className="tx-search"
-                    aria-label="Rechercher une transaction"
-                    placeholder="Rechercher : mot-clé, 42, 42,10, >100, 50-100…"
-                    title="Mot-clé dans le libellé, ou montant : 42 (42,00 à 42,99), 42,10 (exact), >100, <20, 50-100"
+                    aria-label={t("Rechercher une transaction")}
+                    placeholder={t("Rechercher : mot-clé, 42, 42,10, >100, 50-100…")}
+                    title={t("Mot-clé dans le libellé, ou montant : 42 (42,00 à 42,99), 42,10 (exact), >100, <20, 50-100")}
                     value={txQuery}
                     onChange={(e) => setTxQuery(e.target.value)}
                   />
                   <div className="tx-filters">
-                    {chip("", "Toutes")}
-                    {counts.check > 0 && chip("__check__", "À vérifier", counts.check)}
-                    {chip("__none__", "Sans catégorie", counts.none)}
-                    {counts.rec > 0 && chip("__rec__", "Récurrentes", counts.rec)}
-                    <select className={"tx-select" + (isCatFilter ? " active" : "")} aria-label="Filtrer par catégorie" value={isCatFilter ? txCatFilter : ""} onChange={(e) => setTxCatFilter(e.target.value)}>
-                      <option value="">Catégorie…</option>
+                    {chip("", t("Toutes"))}
+                    {counts.check > 0 && chip("__check__", t("À vérifier"), counts.check)}
+                    {chip("__none__", t("Sans catégorie"), counts.none)}
+                    {counts.rec > 0 && chip("__rec__", t("Récurrentes"), counts.rec)}
+                    <select className={"tx-select" + (isCatFilter ? " active" : "")} aria-label={t("Filtrer par catégorie")} value={isCatFilter ? txCatFilter : ""} onChange={(e) => setTxCatFilter(e.target.value)}>
+                      <option value="">{t("Catégorie…")}</option>
                       {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
                     </select>
-                    <select className="tx-select" aria-label="Trier" value={txSort} onChange={(e) => setTxSort(e.target.value)}>
-                      <option value="default">Tri : date (récent)</option>
-                      <option value="date_asc">Date (ancien)</option>
-                      <option value="amount_desc">Montant (plus grand)</option>
-                      <option value="amount_asc">Montant (plus petit)</option>
-                      <option value="category">Catégorie (A→Z)</option>
-                      <option value="label">Libellé (A→Z)</option>
+                    <select className="tx-select" aria-label={t("Trier")} value={txSort} onChange={(e) => setTxSort(e.target.value)}>
+                      <option value="default">{t("Tri : date (récent)")}</option>
+                      <option value="date_asc">{t("Date (ancien)")}</option>
+                      <option value="amount_desc">{t("Montant (plus grand)")}</option>
+                      <option value="amount_asc">{t("Montant (plus petit)")}</option>
+                      <option value="category">{t("Catégorie (A→Z)")}</option>
+                      <option value="label">{t("Libellé (A→Z)")}</option>
                     </select>
                     {(filtering || txSort !== "default") && (
-                      <button className="btn-link" style={{ marginTop: 0 }} onClick={() => { setTxQuery(""); setTxCatFilter(""); setTxSort("default"); }}>Réinitialiser</button>
+                      <button className="btn-link" style={{ marginTop: 0 }} onClick={() => { setTxQuery(""); setTxCatFilter(""); setTxSort("default"); }}>{t("Réinitialiser")}</button>
                     )}
                   </div>
                   {filtering && all.length > 0 && (
-                    <div className="tx-result">{all.length} transaction(s) sur {everything.length} · total {fmt(filteredTotal)}</div>
+                    <div className="tx-result">{t("{n} transaction(s) sur {total} · total {amt}", { n: all.length, total: everything.length, amt: fmt(filteredTotal) })}</div>
                   )}
                   {everything.length === 0 ? (
-                    <div className="import-hint" style={{ padding: "16px 0" }}>Aucune dépense enregistrée ce mois-ci pour l'instant.</div>
+                    <div className="import-hint" style={{ padding: "16px 0" }}>{t("Aucune dépense enregistrée ce mois-ci pour l'instant.")}</div>
                   ) : all.length === 0 ? (
-                    <div className="import-hint" style={{ padding: "16px 0" }}>Aucune transaction ne correspond.</div>
+                    <div className="import-hint" style={{ padding: "16px 0" }}>{t("Aucune transaction ne correspond.")}</div>
                   ) : (
                     groups.map((g) => (
                       <div key={g.key} className="tx-group">
@@ -2685,34 +3020,34 @@ function BudgetTracker({ household, onLogout, onRename }) {
                     ))
                   )}
                   {limited && (
-                    <button type="button" className="tx-more" onClick={() => setTxShowAll(true)}>Voir les {all.length} transactions</button>
+                    <button type="button" className="tx-more" onClick={() => setTxShowAll(true)}>{t("Voir les {n} transactions", { n: all.length })}</button>
                   )}
                 </React.Fragment>
               );
             })()}
-            <button className="add-line" onClick={() => addManualTransaction(selectedMonth)}>+ Ajouter une dépense</button>
+            <button className="add-line" onClick={() => addManualTransaction(selectedMonth)}>{t("+ Ajouter une dépense")}</button>
           </div>
         )}
       </div>
 
       <div className="panel">
         <div className="panel-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setShowImportFiles((v) => !v)}>
-          <span>Relevés importés pour {curMonthLabel} ({monthImportFiles.length})</span>
-          <span style={{ fontSize: 12, color: "var(--gold)" }}>{showImportFiles ? "Masquer ▲" : "Voir ▼"}</span>
+          <span>{t("Relevés importés pour {m} ({n})", { m: curMonthLabel, n: monthImportFiles.length })}</span>
+          <span style={{ fontSize: 12, color: "var(--gold)" }}>{t(showImportFiles ? "Masquer ▲" : "Voir ▼")}</span>
         </div>
         {showImportFiles && (
           monthImportFiles.length === 0 ? (
-            <div className="import-hint" style={{ padding: 16 }}>Aucun relevé importé pour ce mois. Chaque fichier importé est conservé ici et peut être re-téléchargé.</div>
+            <div className="import-hint" style={{ padding: 16 }}>{t("Aucun relevé importé pour ce mois. Chaque fichier importé est conservé ici et peut être re-téléchargé.")}</div>
           ) : (
             monthImportFiles.map((f) => (
               <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderBottom: "1px solid var(--rule)", fontSize: 12, flexWrap: "wrap" }}>
                 <span style={{ flex: "1 1 200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={f.file_name}>{f.file_name}</span>
                 <span style={{ color: "var(--ink-soft)" }}>
-                  {new Date(f.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
-                  {" · "}{f.imported_count} importée(s){f.skipped_count > 0 ? `, ${f.skipped_count} déjà présente(s)` : ""}
+                  {new Date(f.created_at).toLocaleString(LOCALE(), { dateStyle: "short", timeStyle: "short" })}
+                  {" · "}{t("{n} importée(s)", { n: f.imported_count })}{f.skipped_count > 0 ? t(", {n} déjà présente(s)", { n: f.skipped_count }) : ""}
                 </span>
-                <button className="reset-btn" onClick={() => downloadImportFile(f)}>↓ Télécharger</button>
-                <button className="icon-btn" title="Supprimer ce fichier de l'archive" onClick={() => deleteImportFile(f)}>✕</button>
+                <button className="reset-btn" onClick={() => downloadImportFile(f)}>{t("↓ Télécharger")}</button>
+                <button className="icon-btn" title={t("Supprimer ce fichier de l'archive")} onClick={() => deleteImportFile(f)}>✕</button>
               </div>
             ))
           )
@@ -2722,20 +3057,20 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
       <div className="charts">
         <div className="chart-box">
-          <p className="chart-title">Dépenses par mois (hors épargne)</p>
+          <p className="chart-title">{t("Dépenses par mois (hors épargne)")}</p>
           <MonthlySpendChart data={spendData} budget={monthBudgetTotal} selectedName={curMonthLabel}
             onPick={(id) => { setSelectedMonth(id); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
-          <p className="chart-hint">Cliquez sur un mois pour l'ouvrir.</p>
+          <p className="chart-hint">{t("Cliquez sur un mois pour l'ouvrir.")}</p>
           {overMonths.length > 0 && (
             <div className="om-list">
-              <div className="om-title">Mois au-dessus du budget</div>
+              <div className="om-title">{t("Mois au-dessus du budget")}</div>
               {overMonths.map((d) => (
                 <div key={d.id} className="om-row">
                   <button type="button" className="om-month" onClick={() => { setSelectedMonth(d.id); window.scrollTo({ top: 0, behavior: "smooth" }); }}>{d.name}</button>
                   <span className="om-over">+{fmt(Math.round(d.overrun))}</span>
                   <span className="om-causes">
                     {d.causes.slice(0, 3).map((c) => (
-                      <span key={c.id} className="om-cause">{c.name} <strong>+{fmt(Math.round(c.excess))}</strong>{c.noBudget ? " (sans budget)" : ""}</span>
+                      <span key={c.id} className="om-cause">{c.name} <strong>+{fmt(Math.round(c.excess))}</strong>{c.noBudget ? t(" (sans budget)") : ""}</span>
                     ))}
                     {d.causes.length > 3 && <span className="om-cause more">+{d.causes.length - 3}</span>}
                   </span>
@@ -2745,18 +3080,18 @@ function BudgetTracker({ household, onLogout, onRename }) {
           )}
           {budgetSuggestions.length > 0 && (
             <div className="sugg-list">
-              <div className="om-title">Suggestions</div>
+              <div className="om-title">{t("Suggestions")}</div>
               {budgetSuggestions.map((sg) => (
                 <div key={sg.key + sg.kind} className={"sugg " + sg.kind}>
                   <span className="sugg-text">{sg.text}</span>
                   {sg.catId && sg.value !== undefined && (
                     <button type="button" className="sugg-btn" onClick={() => updateCategoryBudget(sg.catId, sg.value)}>
-                      {sg.kind === "nobudget" ? `Ajouter un budget de ${fmt(sg.value)}` : `Mettre le budget à ${fmt(sg.value)}`}
+                      {sg.kind === "nobudget" ? t("Ajouter un budget de {amt}", { amt: fmt(sg.value) }) : t("Mettre le budget à {amt}", { amt: fmt(sg.value) })}
                     </button>
                   )}
                 </div>
               ))}
-              <p className="chart-hint">Basé sur les mois terminés. Chaque bouton modifie le budget — « Annuler » en haut permet de revenir en arrière.</p>
+              <p className="chart-hint">{t("Basé sur les mois terminés. Chaque bouton modifie le budget — « Annuler » en haut permet de revenir en arrière.")}</p>
             </div>
           )}
         </div>
@@ -2774,8 +3109,25 @@ function App() {
   const [checkingHousehold, setCheckingHousehold] = useState(false);
   const [recovering, setRecovering] = useState(ARRIVED_FROM_RECOVERY_LINK);
   const [passwordChanged, setPasswordChanged] = useState(false);
+  // Chosen language: kept in this browser and on the user's account (so it follows them to other devices).
+  const [lang, setLangState] = useState(LANG);
+  const applyLang = (l) => {
+    LANG = l;
+    document.documentElement.lang = l;
+    try { localStorage.setItem("budget:lang", l); } catch (e) {}
+    setLangState(l);
+  };
+  const changeLang = (l) => {
+    applyLang(l);
+    sb.auth.getSession().then(({ data }) => { if (data.session) sb.auth.updateUser({ data: { lang: l } }); });
+  };
+  useEffect(() => {
+    const saved = session?.user?.user_metadata?.lang;
+    if ((saved === "fr" || saved === "en") && saved !== LANG) applyLang(saved);
+  }, [session?.user?.id]);
 
   useEffect(() => {
+    document.documentElement.lang = LANG;
     sb.auth.getSession().then(({ data }) => { setSession(data.session); setLoadingSession(false); });
     const { data: listener } = sb.auth.onAuthStateChange((event, s) => {
       if (event === "PASSWORD_RECOVERY") setRecovering(true);
@@ -2809,14 +3161,14 @@ function App() {
   const renameHousehold = async (newName) => {
     const { error } = await sb.from("households").update({ name: newName }).eq("id", household.id);
     if (error) {
-      window.alert("Impossible de renommer le foyer : " + error.message);
+      window.alert(t("Impossible de renommer le foyer : ") + error.message);
       return;
     }
     setHousehold((h) => ({ ...h, name: newName }));
   };
 
-  if (loadingSession) return <div style={{ padding: 40 }}>Chargement…</div>;
-  if (!session) return <AuthScreen />;
+  if (loadingSession) return <div style={{ padding: 40 }}>{t("Chargement…")}</div>;
+  if (!session) return <AuthScreen lang={lang} onLang={changeLang} />;
   if (recovering) return (
     <NewPasswordScreen onDone={() => {
       setRecovering(false); setPasswordChanged(true);
@@ -2824,12 +3176,12 @@ function App() {
       setTimeout(() => setPasswordChanged(false), 6000);
     }} />
   );
-  if (checkingHousehold) return <div style={{ padding: 40 }}>Chargement…</div>;
+  if (checkingHousehold) return <div style={{ padding: 40 }}>{t("Chargement…")}</div>;
   return (
     <React.Fragment>
-      {passwordChanged && <div className="toast">✓ Mot de passe modifié.</div>}
+      {passwordChanged && <div className="toast">{t("✓ Mot de passe modifié.")}</div>}
       {household
-        ? <BudgetTracker household={household} onLogout={logout} onRename={renameHousehold} />
+        ? <BudgetTracker household={household} onLogout={logout} onRename={renameHousehold} lang={lang} onLang={changeLang} />
         : <HouseholdSetup session={session} onReady={setHousehold} />}
     </React.Fragment>
   );
