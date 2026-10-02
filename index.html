@@ -251,6 +251,15 @@
   .tx-result { font-size: 13px; color: var(--ink-soft); margin-top: 10px; }
   .tx-day { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); padding: 18px 0 4px; }
   .tx-item { border-bottom: 1px solid var(--rule); }
+  .tx-item.picked { background: var(--sand); margin: 0 -12px; padding: 0 12px; }
+  .tx-row-wrap { display: flex; align-items: center; gap: 10px; }
+  .tx-row-wrap .tx-line { flex: 1 1 auto; min-width: 0; }
+  .tx-check { width: 20px; height: 20px; flex: 0 0 auto; accent-color: var(--ink); cursor: pointer; }
+  .tx-filter.confirm-all { background: var(--saffron); border-color: var(--saffron); }
+  .tx-bulk { position: sticky; top: 76px; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--ink); color: var(--paper); }
+  .tx-bulk-all { display: flex; gap: 8px; align-items: center; font-size: 13px; font-weight: 600; margin-right: auto; cursor: pointer; }
+  .tx-bulk-all input { width: 18px; height: 18px; accent-color: var(--saffron); }
+  .tx-bulk .tx-btn:disabled, .tx-bulk select:disabled { opacity: 0.5; cursor: default; }
   .tx-item.open { background: var(--paper-alt); margin: 0 -12px; padding: 0 12px; border-radius: 12px; border-bottom-color: transparent; }
   .tx-line { width: 100%; display: flex; align-items: center; gap: 14px; padding: 10px 0; background: none; border: none; cursor: pointer; text-align: left; color: var(--ink); font: inherit; }
   .tx-line:hover .tx-name { text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 3px; }
@@ -338,6 +347,7 @@
     .panel-title { font-size: 19px; padding: 14px 16px; }
     .row, .cat-list, .add-line, .totals-row { padding-left: 16px; padding-right: 16px; }
     .tx-body { padding: 14px 16px 8px; }
+    .tx-bulk { position: fixed; top: auto; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); left: 12px; right: 12px; z-index: 25; margin: 0; box-shadow: 0 6px 20px rgba(0,0,0,0.2); }
     .money-card { grid-template-columns: 1fr; padding: 20px 0; gap: 24px; }
     .money-col { padding: 0 16px; }
     .money-col + .money-col { border-left: none; border-top: 1px solid var(--rule); padding-top: 20px; }
@@ -684,6 +694,15 @@ const EN = {
   ", {n} catégorie(s) devinée(s) marquée(s) « ? » à vérifier": ", {n} guessed (marked \"?\") to check",
   ". Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».": ". Check/complete their category below in \"Transactions\".",
   "Nom de la nouvelle catégorie ?": "Name of the new category?",
+  "Sélectionner « {tx} »": "Select \"{tx}\"",
+  "Confirme toutes les catégories devinées (« ? ») de ce mois": "Confirms every guessed category (\"?\") this month",
+  "✓ Tout confirmer ({n})": "✓ Confirm all ({n})",
+  "Terminer la sélection": "Done selecting",
+  "☑ Sélectionner": "☑ Select",
+  "{n} sélectionnée(s)": "{n} selected",
+  "✓ Confirmer": "✓ Confirm",
+  "Mettre dans la catégorie": "Move to category",
+  "Mettre dans la catégorie…": "Move to category…",
   "Budgets": "Budgets",
   "Foyer": "Household",
   "Perso ·": "Personal ·",
@@ -1487,6 +1506,8 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
   const [txSort, setTxSort] = useState("default");
   const [openTx, setOpenTx] = useState(null); // transaction whose edit form is open
   const [txShowAll, setTxShowAll] = useState(false);
+  const [selectMode, setSelectMode] = useState(false); // ticking several transactions to act on them at once
+  const [selectedTx, setSelectedTx] = useState({}); // { [txId]: true }
   const [openAutoDetails, setOpenAutoDetails] = useState({});
   // Revenus & épargne card: lines at 0 are hidden, except ones just added.
   const [freshIncome, setFreshIncome] = useState({});
@@ -2410,6 +2431,30 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
       }),
     }));
   };
+  // Several transactions at once: confirm their category (catId omitted) or give them all
+  // the same category. Each choice is remembered for its merchant, as for one transaction.
+  const bulkCategorize = (m, ids, catId) => {
+    if (catId === "__new__") {
+      const name = window.prompt(t("Nom de la nouvelle catégorie ?"));
+      if (!name) return;
+      const newId = uid("cat");
+      setCategories((cs) => [...cs, { id: newId, name, budget: 0 }]);
+      catId = newId;
+    }
+    const pick = new Set(ids);
+    const rows = (transactions[m] || []).filter((x) => pick.has(x.id));
+    const learned = {};
+    for (const x of rows) {
+      const c = catId !== undefined ? catId : x.categoryId;
+      const key = merchantKey(x.label);
+      if (key && c) learned[key] = c;
+    }
+    if (Object.keys(learned).length) setCategoryRules((r) => ({ ...r, ...learned }));
+    setTransactions((tr) => ({
+      ...tr,
+      [m]: (tr[m] || []).map((x) => (pick.has(x.id) ? { ...x, categoryId: catId !== undefined ? catId : x.categoryId, categorySource: "manual" } : x)),
+    }));
+  };
   const updateTransactionField = (m, txId, field, value) => {
     const current = (transactions[m] || []).find((tx) => tx.id === txId);
     if (!current) return;
@@ -3181,8 +3226,13 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
                 const cat = catOf(tx);
                 const amount = Number(tx.amount) || 0;
                 return (
-                  <div key={tx.id} className={"tx-item" + (open ? " open" : "")}>
-                    <button type="button" className="tx-line" title={tx.label} onClick={() => setOpenTx(open ? null : tx.id)}>
+                  <div key={tx.id} className={"tx-item" + (open ? " open" : "") + (selectMode && selectedTx[tx.id] ? " picked" : "")}>
+                    <div className="tx-row-wrap">
+                    {selectMode && (
+                      <input type="checkbox" className="tx-check" aria-label={t("Sélectionner « {tx} »", { tx: prettyTxLabel(tx.label) })} checked={!!selectedTx[tx.id]}
+                        onChange={() => setSelectedTx((sel) => ({ ...sel, [tx.id]: !sel[tx.id] }))} />
+                    )}
+                    <button type="button" className="tx-line" title={tx.label} onClick={() => selectMode ? setSelectedTx((sel) => ({ ...sel, [tx.id]: !sel[tx.id] })) : setOpenTx(open ? null : tx.id)}>
                       <span className="tx-name">
                         {tx.recurring && <span className="tx-rec" title={t("Récurrente")}>🔁</span>}
                         {prettyTxLabel(tx.label) || <em>{t("Sans libellé")}</em>}
@@ -3196,7 +3246,8 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
                       </span>
                       <span className={"tx-amt" + (amount < 0 ? " in" : "")}>{amount < 0 ? "+" : amount > 0 ? "−" : ""}{fmtCents(Math.abs(amount))}</span>
                     </button>
-                    {open && (
+                    </div>
+                    {open && !selectMode && (
                       <div className="tx-edit">
                         <label className="tx-field tx-f-date">
                           <span>{t("Date")}</span>
@@ -3271,6 +3322,12 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
                   <div className="tx-filters">
                     {chip("", t("Toutes"))}
                     {counts.check > 0 && chip("__check__", t("À vérifier"), counts.check)}
+                    {counts.check > 0 && (
+                      <button type="button" className="tx-filter confirm-all" title={t("Confirme toutes les catégories devinées (« ? ») de ce mois")}
+                        onClick={() => bulkCategorize(selectedMonth, everything.filter(toCheck).map((x) => x.id))}>
+                        {t("✓ Tout confirmer ({n})", { n: counts.check })}
+                      </button>
+                    )}
                     {chip("__none__", t("Sans catégorie"), counts.none)}
                     {counts.rec > 0 && chip("__rec__", t("Récurrentes"), counts.rec)}
                     <select className={"tx-select" + (isCatFilter ? " active" : "")} aria-label={t("Filtrer par catégorie")} value={isCatFilter ? txCatFilter : ""} onChange={(e) => setTxCatFilter(e.target.value)}>
@@ -3288,7 +3345,30 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
                     {(filtering || txSort !== "default") && (
                       <button className="btn-link" style={{ marginTop: 0 }} onClick={() => { setTxQuery(""); setTxCatFilter(""); setTxSort("default"); }}>{t("Réinitialiser")}</button>
                     )}
+                    <button type="button" className={"tx-filter" + (selectMode ? " active" : "")} style={{ marginLeft: "auto" }}
+                      onClick={() => { setSelectMode((v) => !v); setSelectedTx({}); setOpenTx(null); }}>
+                      {selectMode ? t("Terminer la sélection") : t("☑ Sélectionner")}
+                    </button>
                   </div>
+                  {selectMode && (() => {
+                    const ids = all.map((x) => x.id).filter((id) => selectedTx[id]);
+                    const allPicked = all.length > 0 && ids.length === all.length;
+                    return (
+                      <div className="tx-bulk">
+                        <label className="tx-bulk-all">
+                          <input type="checkbox" checked={allPicked} onChange={() => setSelectedTx(allPicked ? {} : Object.fromEntries(all.map((x) => [x.id, true])))} />
+                          {t("{n} sélectionnée(s)", { n: ids.length })}
+                        </label>
+                        <button type="button" className="tx-btn confirm" disabled={!ids.length} onClick={() => { bulkCategorize(selectedMonth, ids); setSelectedTx({}); }}>{t("✓ Confirmer")}</button>
+                        <select className="tx-select" aria-label={t("Mettre dans la catégorie")} value="" disabled={!ids.length}
+                          onChange={(e) => { if (e.target.value) { bulkCategorize(selectedMonth, ids, e.target.value); setSelectedTx({}); } }}>
+                          <option value="">{t("Mettre dans la catégorie…")}</option>
+                          {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                          <option value="__new__">{t("+ Nouvelle catégorie…")}</option>
+                        </select>
+                      </div>
+                    );
+                  })()}
                   {filtering && all.length > 0 && (
                     <div className="tx-result">{t("{n} transaction(s) sur {total} · total {amt}", { n: all.length, total: everything.length, amt: fmt(filteredTotal) })}</div>
                   )}
