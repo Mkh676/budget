@@ -35,6 +35,12 @@
   .btn-link { background: none; border: none; color: var(--gold); font-family: var(--font-mono); font-size: 12px; cursor: pointer; padding: 0; margin-top: 12px; text-decoration: underline; }
   .err { color: var(--red); font-size: 12px; margin: 8px 0 0; }
   .msg { color: var(--green); font-size: 12px; margin: 8px 0 0; }
+  .space-bar { max-width: 1080px; margin: 0 auto; padding: 0 16px 10px; display: flex; gap: 6px; overflow-x: auto; }
+  .space-bar button { flex: 0 0 auto; font-family: var(--font-body); font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink-soft); cursor: pointer; white-space: nowrap; }
+  .space-bar button.active { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+  @media (max-width: 720px) { .space-bar .sp-pre { display: none; } .space-bar button { padding: 6px 12px; } }
+  .total-split { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--ink-soft); }
+  .total-split strong { color: var(--ink); font-family: var(--font-mono); }
   .lang-switch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--rule); border-radius: 999px; background: var(--paper); flex: 0 0 auto; }
   .lang-switch button { font-family: var(--font-body); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; padding: 4px 9px; border: none; border-radius: 999px; background: transparent; color: var(--ink-soft); cursor: pointer; }
   .lang-switch button.active { background: var(--sand); color: var(--ink); }
@@ -678,6 +684,18 @@ const EN = {
   ", {n} catégorie(s) devinée(s) marquée(s) « ? » à vérifier": ", {n} guessed (marked \"?\") to check",
   ". Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».": ". Check/complete their category below in \"Transactions\".",
   "Nom de la nouvelle catégorie ?": "Name of the new category?",
+  "Budgets": "Budgets",
+  "Foyer": "Household",
+  "Perso ·": "Personal ·",
+  "budget perso de {name}": "{name}'s personal budget",
+  "vue d'ensemble": "overview",
+  "Versé au foyer": "Sent to household",
+  "revenus − dépenses − épargne − versé au foyer": "income − spending − savings − sent to household",
+  "Aucune donnée pour l'instant.": "No data yet.",
+  "Dépenses totales": "Total spending",
+  "Épargné ce mois": "Saved this month",
+  "Épargne totale (tous les comptes)": "Total savings (all accounts)",
+  "Les virements de « Virement vers le foyer » ne sont pas comptés comme dépenses, pour ne pas compter deux fois le même argent.": "Transfers in \"Transfer to household\" aren't counted as spending, so the same money isn't counted twice.",
   "date": "date",
   "montant": "amount",
   "Ce fichier n'a pas pu être lu : colonne(s) introuvable(s) : {cols}. Exportez le relevé au format CSV depuis votre banque (une ligne par opération, avec la date, le libellé et le montant).": "This file couldn't be read: column(s) not found: {cols}. Export the statement as CSV from your bank (one line per operation, with the date, label and amount).",
@@ -1162,6 +1180,8 @@ const STANDARD_CATEGORIES = [
   ["salaire", "Salaire", "Salary"],
   ["autres_revenus", "Autres revenus", "Other income"],
   ["epargne", "Épargne", "Savings"],
+  // Personal budgets only: money sent to the shared household account (not spending, ignored in the Total).
+  ["vers_foyer", "Virement vers le foyer", "Transfer to household", "personal"],
 ];
 // Name to show for a category: a standard category that still has its default
 // name (French or English) is shown in the current language; a renamed one as typed.
@@ -1170,14 +1190,64 @@ function categoryLabel(c) {
   if (std && (c.name === std[1] || c.name === std[2])) return LANG === "en" ? std[2] : std[1];
   return c.name;
 }
-function emptyBudgetDoc(lang) {
-  const categories = STANDARD_CATEGORIES.map(([id, fr, en]) => ({ id, name: lang === "en" ? en : fr, budget: 0 }));
+function emptyBudgetDoc(lang, personal) {
+  const categories = STANDARD_CATEGORIES.filter((c) => personal || c[3] !== "personal").map(([id, fr, en]) => ({ id, name: lang === "en" ? en : fr, budget: 0 }));
   // Starts with the current month (labels are stored in French; they're translated for display).
   const now = new Date();
   const key = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
   const n = MONTH_NAMES_FR[now.getMonth()];
   const month = { id: uid("month"), label: n.charAt(0).toUpperCase() + n.slice(1) + " " + now.getFullYear(), date: key + "-01" };
   return { categories, months: [month], income: { [month.id]: [] }, savings: { [month.id]: 0 }, actuals: { [month.id]: {} }, transactions: {}, recurringFees: [] };
+}
+
+// The categories that aren't spending: salary, other income, savings, transfer to the household.
+function specialCategories(cats) {
+  const find = (id, words) => cats.find((c) => c.id === id) || cats.find((c) => words.some((w) => normText(c.name).includes(w)));
+  return {
+    salaire: find("salaire", ["salaire", "salary"]),
+    epargne: find("epargne", ["epargne", "savings"]),
+    otherIncome: find("autres_revenus", ["autres revenus", "other income"]),
+    transfer: find("vers_foyer", ["virement vers le foyer", "transfer to household"]),
+  };
+}
+// Last known balance of a savings account (typed by hand, read from the bank, or summed).
+function latestSavingsBalance(acc) {
+  if (acc.manual) {
+    const keys = Object.keys(acc.balances || {}).filter((k) => acc.balances[k] !== "" && !isNaN(Number(acc.balances[k]))).sort();
+    return keys.length ? Number(acc.balances[keys[keys.length - 1]]) : 0;
+  }
+  const es = (acc.entries || []).map((e) => ({ ...e, day: dateToDayNumber(e.date) })).filter((e) => e.day !== null).sort((a, b) => a.day - b.day);
+  if (!es.length) return 0;
+  const withBal = es.filter((e) => typeof e.balance === "number");
+  return withBal.length ? withBal[withBal.length - 1].balance : es.reduce((t, e) => t + e.amount, 0);
+}
+// Per "YYYY-MM": spending (transfers to the household excluded) and money saved; plus total savings balance.
+function summarizeBudgetDoc(doc) {
+  const cats = doc.categories || [];
+  const sp = specialCategories(cats);
+  const notSpending = new Set([sp.salaire, sp.epargne, sp.otherIncome, sp.transfer].filter(Boolean).map((c) => c.id));
+  const known = new Set(cats.map((c) => c.id));
+  const months = {};
+  for (const m of doc.months || []) {
+    const key = monthSortKey(m);
+    if (!key) continue;
+    let spent = 0, saved = Number((doc.savings || {})[m.id]) || 0;
+    for (const tx of (doc.transactions || {})[m.id] || []) {
+      const a = Number(tx.amount) || 0;
+      if (!known.has(tx.categoryId)) { if (a > 0) spent += a; continue; }
+      if (sp.epargne && tx.categoryId === sp.epargne.id) saved += a;
+      else if (!notSpending.has(tx.categoryId)) spent += a;
+    }
+    const e = (months[key] = months[key] || { spent: 0, saved: 0 });
+    e.spent += spent; e.saved += saved;
+  }
+  const savingsBalance = Object.values(doc.savingsAccounts || {}).reduce((t, a) => t + latestSavingsBalance(a), 0);
+  return { months, savingsBalance };
+}
+// "mariam.k.hotait@gmail.com" -> "Mariam"
+function nameFromEmail(email) {
+  const n = String(email || "").split("@")[0].split(/[._\-+0-9]/)[0] || "Moi";
+  return n.charAt(0).toUpperCase() + n.slice(1);
 }
 
 // ---------- Charts ----------
@@ -1383,7 +1453,12 @@ function HouseholdSetup({ session, onReady }) {
 }
 
 // ---------- Main budget tracker (shared, per household) ----------
-function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
+function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spaceBar }) {
+  // space: { kind: "household" } or { kind: "member", userId, name } — whose budget this is.
+  const budgetQuery = () => space.kind === "member"
+    ? sb.from("member_budget").select("data").eq("household_id", household.id).eq("user_id", space.userId)
+    : sb.from("household_budget").select("data").eq("household_id", household.id);
+  const docExtras = useRef({}); // fields of the saved budget this screen doesn't edit (e.g. ownerName)
   const [loaded, setLoaded] = useState(false);
   const [rawCategories, setCategories] = useState([]); // as saved
   // As shown: standard categories still carrying their default name follow the chosen language.
@@ -1424,8 +1499,9 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await sb.from("household_budget").select("data").eq("household_id", household.id).maybeSingle();
-      const doc = (data && data.data) || emptyBudgetDoc(LANG);
+      const { data, error } = await budgetQuery().maybeSingle();
+      const doc = (data && data.data) || emptyBudgetDoc(LANG, space.kind === "member");
+      docExtras.current = doc.ownerName ? { ownerName: doc.ownerName } : {};
       // Drop data left behind by month tabs that no longer exist (tabs deleted
       // before deletion also removed their data), so it can't resurface or
       // interfere with imports. It's removed from storage on the next save.
@@ -1527,9 +1603,11 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
     setSaveState("saving");
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
-      const { error } = await sb.from("household_budget")
-        .update({ data: { categories: rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, migratedActuals: true }, updated_at: new Date().toISOString() })
-        .eq("household_id", household.id);
+      const data = { ...docExtras.current, categories: rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, migratedActuals: true };
+      const q = space.kind === "member"
+        ? sb.from("member_budget").update({ data, updated_at: new Date().toISOString() }).eq("household_id", household.id).eq("user_id", space.userId)
+        : sb.from("household_budget").update({ data, updated_at: new Date().toISOString() }).eq("household_id", household.id);
+      const { error } = await q;
       setSaveState(error ? "error" : "saved");
     }, 500);
     return () => clearTimeout(saveTimer.current);
@@ -1596,11 +1674,10 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
   // Salaire/Épargne are income & savings categories, not expense categories —
   // detected by name so this works whether they came from the default
   // template or were added manually by a household member.
-  const salaireCat = categories.find((c) => c.id === "salaire") || categories.find((c) => ["salaire", "salary"].some((w) => normText(c.name).includes(w)));
-  const epargneCat = categories.find((c) => c.id === "epargne") || categories.find((c) => ["epargne", "savings"].some((w) => normText(c.name).includes(w)));
-  // "Autres revenus" (other income): money received in it counts in total income, like salary.
-  const otherIncomeCat = categories.find((c) => c.id === "autres_revenus") || categories.find((c) => ["autres revenus", "other income"].some((w) => normText(c.name).includes(w)));
-  const expenseCategories = categories.filter((c) => c.id !== salaireCat?.id && c.id !== epargneCat?.id && c.id !== otherIncomeCat?.id);
+  // "Autres revenus" (other income) counts in total income, like salary; "Virement vers le foyer"
+  // (personal budgets) is money sent to the shared account: not spending, but it leaves the month's money.
+  const { salaire: salaireCat, epargne: epargneCat, otherIncome: otherIncomeCat, transfer: transferCat } = specialCategories(categories);
+  const expenseCategories = categories.filter((c) => c.id !== salaireCat?.id && c.id !== epargneCat?.id && c.id !== otherIncomeCat?.id && c.id !== transferCat?.id);
 
   // Salaire transactions are money received (negative app-amount) — flip sign for income.
   const salaryFromTransactions = (m) => (salaireCat ? -categoryTotal(m, salaireCat.id) : 0);
@@ -1618,7 +1695,8 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
     .filter((t) => !categories.some((c) => c.id === t.categoryId) && Number(t.amount) > 0)
     .reduce((s, t) => s + Number(t.amount), 0);
   const monthActualTotal = (m) => expenseCategories.reduce((s, c) => s + categoryTotal(m, c.id), 0) + uncategorizedSpent(m);
-  const monthRestant = (m) => monthIncome(m) - monthActualTotal(m) - monthSavings(m);
+  const monthTransferred = (m) => (transferCat ? categoryTotal(m, transferCat.id) : 0);
+  const monthRestant = (m) => monthIncome(m) - monthActualTotal(m) - monthSavings(m) - monthTransferred(m);
 
 
   const updateCategoryBudget = (id, v) => setCategories((cs) => cs.map((c) => (c.id === id ? { ...c, budget: v } : c)));
@@ -2534,7 +2612,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
             ) : (
               <button className="brand" title={t("Cliquer pour renommer le foyer")} onClick={() => { setNameDraft(household.name); setEditingName(true); }}>{household.name}</button>
             )}
-            <span className="brand-sub">{t("budget du foyer")}</span>
+            <span className="brand-sub">{space.kind === "member" ? t("budget perso de {name}", { name: space.name }) : t("budget du foyer")}</span>
           </div>
           <nav className="section-nav" aria-label="Sections">
             <button className={view === "home" ? "active" : ""} onClick={() => goTo("home")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7"></path><path d="M5 10v10h14V10"></path></svg>{t("Accueil")}</button>
@@ -2552,6 +2630,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
             <button className="logout-btn" onClick={onLogout}>{t("Se déconnecter")}</button>
           </div>
         </div>
+        {spaceBar}
       </header>
 
       {importSummary && (
@@ -2737,11 +2816,14 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <span className="hero-kicker">{t("Reste à la fin du mois")}</span>
           <span className={"hero-big" + (curRestant < 0 ? " neg" : "")}>{fmt(Math.round(curRestant))}</span>
-          <span className="hero-label">{t("revenus − dépenses − épargne")}</span>
+          <span className="hero-label">{t(transferCat ? "revenus − dépenses − épargne − versé au foyer" : "revenus − dépenses − épargne")}</span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div><div className="hero-label">{t("Revenus")}</div><div className="hero-num">{fmt(Math.round(curIncomeTotal))}</div></div>
           <div><div className="hero-label">{t("Épargné")}</div><div className="hero-num">{fmt(Math.round(curSavings))}</div></div>
+          {transferCat && monthTransferred(selectedMonth) !== 0 && (
+            <div><div className="hero-label">{t("Versé au foyer")}</div><div className="hero-num">{fmt(Math.round(monthTransferred(selectedMonth)))}</div></div>
+          )}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div className="hero-label">{t("Dépensé / budget")}</div>
@@ -3284,6 +3366,148 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
   );
 }
 
+
+// ---------- Workspace: household budget, each member's personal budget, and the Total ----------
+// Every member of the household can open the shared budget and every member's
+// personal budget. A member's personal budget is created the first time they open the site.
+function Workspace({ household, session, onLogout, onRename, lang, onLang }) {
+  const me = session.user.id;
+  const [members, setMembers] = useState(null); // [{ userId, name }], me first
+  const spaceKey = "budget:space:" + household.id;
+  const [space, setSpaceState] = useState(() => { try { return localStorage.getItem(spaceKey) || "household"; } catch (e) { return "household"; } });
+  const setSpace = (s) => { setSpaceState(s); try { localStorage.setItem(spaceKey, s); } catch (e) {} };
+  useEffect(() => {
+    (async () => {
+      const { data } = await sb.from("member_budget").select("user_id, data->ownerName").eq("household_id", household.id);
+      let rows = data || [];
+      if (!rows.some((r) => r.user_id === me)) {
+        const ownerName = nameFromEmail(session.user.email);
+        const doc = { ...emptyBudgetDoc(LANG, true), ownerName };
+        const { error } = await sb.from("member_budget").insert({ household_id: household.id, user_id: me, data: doc });
+        if (!error) rows = [...rows, { user_id: me, ownerName }];
+      }
+      const list = rows.map((r) => ({ userId: r.user_id, name: r.ownerName || "?" }))
+        .sort((a, b) => (a.userId === me ? -1 : b.userId === me ? 1 : a.name.localeCompare(b.name)));
+      setMembers(list);
+    })();
+  }, [household.id, me]);
+  if (!members) return <div style={{ padding: 40 }}>{t("Chargement…")}</div>;
+  const member = members.find((m) => m.userId === space);
+  const current = space === "total" ? "total" : member ? space : "household";
+  const spaceBar = (
+    <div className="space-bar" role="tablist" aria-label={t("Budgets")}>
+      <button role="tab" aria-selected={current === "household"} className={current === "household" ? "active" : ""} onClick={() => setSpace("household")}>{t("Foyer")}</button>
+      {members.map((m) => (
+        <button key={m.userId} role="tab" aria-selected={current === m.userId} className={current === m.userId ? "active" : ""} onClick={() => setSpace(m.userId)}>
+          <span className="sp-pre">{t("Perso ·")} </span>{m.name}
+        </button>
+      ))}
+      <button role="tab" aria-selected={current === "total"} className={current === "total" ? "active" : ""} onClick={() => setSpace("total")}>{t("Total")}</button>
+    </div>
+  );
+  if (current === "total") return <TotalView household={household} members={members} spaceBar={spaceBar} onLogout={onLogout} lang={lang} onLang={onLang} />;
+  const spaceObj = member ? { kind: "member", userId: member.userId, name: member.name } : { kind: "household" };
+  return <BudgetTracker key={current} household={household} onLogout={onLogout} onRename={onRename} lang={lang} onLang={onLang} space={spaceObj} spaceBar={spaceBar} />;
+}
+
+// ---------- Total: household + every member's personal budget ----------
+// Spending of all budgets added up (transfers to the household are not spending),
+// money saved each month, and the total of all savings accounts.
+function TotalView({ household, members, spaceBar, onLogout, lang, onLang }) {
+  const [docs, setDocs] = useState(null);
+  useEffect(() => {
+    (async () => {
+      const [{ data: hh }, { data: mb }] = await Promise.all([
+        sb.from("household_budget").select("data").eq("household_id", household.id).maybeSingle(),
+        sb.from("member_budget").select("user_id, data").eq("household_id", household.id),
+      ]);
+      const list = [{ key: "household", name: t("Foyer"), doc: (hh && hh.data) || {} }];
+      for (const m of members) {
+        const row = (mb || []).find((r) => r.user_id === m.userId);
+        if (row) list.push({ key: m.userId, name: m.name, doc: row.data });
+      }
+      setDocs(list.map((d) => ({ ...d, sum: summarizeBudgetDoc(d.doc) })));
+    })();
+  }, [household.id]);
+  const now = new Date();
+  const nowKey = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+  const keys = docs ? [...new Set(docs.flatMap((d) => Object.keys(d.sum.months)))].filter((k) => k <= nowKey).sort().reverse() : [];
+  const [sel, setSel] = useState(null);
+  const month = sel && keys.includes(sel) ? sel : keys[0];
+  const keyLabel = (k) => { const [y, mo] = k.split("-").map(Number); return monthName(mo - 1) + " " + y; };
+  const val = (d, k, f) => (d.sum.months[k] ? d.sum.months[k][f] : 0);
+  const header = (
+    <header className="appbar">
+      <div className="appbar-inner">
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
+          <span className="brand">{household.name}</span>
+          <span className="brand-sub">{t("vue d'ensemble")}</span>
+        </div>
+        <div className="appbar-actions">
+          <LangSwitch lang={lang} onChange={onLang} />
+          <button className="logout-btn" onClick={onLogout}>{t("Se déconnecter")}</button>
+        </div>
+      </div>
+      {spaceBar}
+    </header>
+  );
+  if (!docs) return <div className="ledger">{header}<div style={{ padding: 40 }}>{t("Chargement…")}</div></div>;
+  const total = (k, f) => docs.reduce((t2, d) => t2 + val(d, k, f), 0);
+  const savingsTotal = docs.reduce((t2, d) => t2 + d.sum.savingsBalance, 0);
+  return (
+    <div className="ledger">
+      {header}
+      {!month ? (
+        <div className="panel"><div className="import-hint" style={{ padding: 16 }}>{t("Aucune donnée pour l'instant.")}</div></div>
+      ) : (<React.Fragment>
+        <div className="month-bar">
+          <select aria-label={t("Choisir le mois")} value={month} onChange={(e) => setSel(e.target.value)}>
+            {keys.map((k) => <option key={k} value={k}>{keyLabel(k)}</option>)}
+          </select>
+        </div>
+        <section className="hero total-hero" aria-label={t("Résumé de {m}", { m: keyLabel(month) })}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <span className="hero-kicker">{t("Dépenses totales")}</span>
+            <span className="hero-big">{fmt(Math.round(total(month, "spent")))}</span>
+            <span className="total-split">{docs.map((d) => <span key={d.key}>{d.name} <strong>{fmt(Math.round(val(d, month, "spent")))}</strong></span>)}</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <span className="hero-label">{t("Épargné ce mois")}</span>
+            <span className="hero-num">{fmt(Math.round(total(month, "saved")))}</span>
+            <span className="total-split">{docs.map((d) => <span key={d.key}>{d.name} <strong>{fmt(Math.round(val(d, month, "saved")))}</strong></span>)}</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <span className="hero-label">{t("Épargne totale (tous les comptes)")}</span>
+            <span className="hero-num">{fmt(Math.round(savingsTotal))}</span>
+            <span className="total-split">{docs.map((d) => <span key={d.key}>{d.name} <strong>{fmt(Math.round(d.sum.savingsBalance))}</strong></span>)}</span>
+          </div>
+        </section>
+        <div className="panel">
+          <div className="panel-title">{t("Mois par mois")}</div>
+          <div style={{ overflowX: "auto", padding: "8px 16px 12px" }}>
+            <table style={{ width: "100%" }}>
+              <thead>
+                <tr><th>{t("Mois")}</th>{docs.map((d) => <th key={d.key} className="num">{d.name}</th>)}<th className="num">{t("Dépenses totales")}</th><th className="num">{t("Épargné")}</th></tr>
+              </thead>
+              <tbody>
+                {keys.map((k) => (
+                  <tr key={k} style={k === month ? { background: "var(--paper-alt)" } : undefined}>
+                    <td><button className="om-month" style={{ fontWeight: k === month ? 700 : 400 }} onClick={() => setSel(k)}>{keyLabel(k)}</button></td>
+                    {docs.map((d) => <td key={d.key} className="num">{fmt(Math.round(val(d, k, "spent")))}</td>)}
+                    <td className="num"><strong>{fmt(Math.round(total(k, "spent")))}</strong></td>
+                    <td className="num" style={{ color: "var(--gold)" }}>{fmt(Math.round(total(k, "saved")))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="import-hint" style={{ padding: "0 16px 12px" }}>{t("Les virements de « Virement vers le foyer » ne sont pas comptés comme dépenses, pour ne pas compter deux fois le même argent.")}</div>
+        </div>
+      </React.Fragment>)}
+    </div>
+  );
+}
+
 // ---------- Top-level app: auth -> household -> tracker ----------
 function App() {
   const [session, setSession] = useState(null);
@@ -3364,7 +3588,7 @@ function App() {
     <React.Fragment>
       {passwordChanged && <div className="toast">{t("✓ Mot de passe modifié.")}</div>}
       {household
-        ? <BudgetTracker household={household} onLogout={logout} onRename={renameHousehold} lang={lang} onLang={changeLang} />
+        ? <Workspace household={household} session={session} onLogout={logout} onRename={renameHousehold} lang={lang} onLang={changeLang} />
         : <HouseholdSetup session={session} onReady={setHousehold} />}
     </React.Fragment>
   );
