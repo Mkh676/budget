@@ -677,6 +677,10 @@ const EN = {
   ", {n} catégorie(s) devinée(s) marquée(s) « ? » à vérifier": ", {n} guessed (marked \"?\") to check",
   ". Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».": ". Check/complete their category below in \"Transactions\".",
   "Nom de la nouvelle catégorie ?": "Name of the new category?",
+  "date": "date",
+  "montant": "amount",
+  "Ce fichier n'a pas pu être lu : colonne(s) introuvable(s) : {cols}. Exportez le relevé au format CSV depuis votre banque (une ligne par opération, avec la date, le libellé et le montant).": "This file couldn't be read: column(s) not found: {cols}. Export the statement as CSV from your bank (one line per operation, with the date, label and amount).",
+  "Aucune opération trouvée dans ce fichier. Exportez le relevé au format CSV depuis votre banque (une ligne par opération, avec la date, le libellé et le montant).": "No operation found in this file. Export the statement as CSV from your bank (one line per operation, with the date, label and amount).",
   "⚠️ Doublon : une dépense identique (même date, même montant, même libellé) existe déjà — modification bloquée.": "⚠️ Duplicate: an identical expense (same date, amount and label) already exists — change blocked.",
 };
 
@@ -782,6 +786,215 @@ function parseAmountQuery(q) {
     return m[1].includes(".") ? (a) => Math.abs(a - n) < 0.005 : (a) => Math.floor(a + 0.005) === n;
   }
   return null;
+}
+
+// ---------- Bank statement CSV, any bank ----------
+// Banks export very different files: French (BoursoBank, LCL, SG, Crédit
+// Agricole…), German (Sparkasse, DKB, ING, Commerzbank, Deutsche Bank…),
+// N26, Revolut, UK/US banks. readBankCsv() finds, whatever the bank:
+// the header row (even below a few lines of account info), the delimiter,
+// the date / label / amount columns (or separate debit + credit columns), and
+// reads amounts in any format ("-1 234,56", "1.234,56-", "-1,234.56", "(12.50)").
+// Returns { rows: [{ date, label, amount (bank sign: negative = money out),
+// bankCat, bankParent, balance, accountNum, accountLabel }] } or { error }.
+
+// Bytes of an exported file -> text: UTF-8, or Windows-1252 (common in German exports).
+function decodeBankFile(buffer) {
+  const bytes = new Uint8Array(buffer);
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch (e) { return new TextDecoder("windows-1252").decode(bytes); }
+}
+// One CSV line -> cells, respecting "quoted; fields" and "" escapes.
+function splitCsvLine(line, delim) {
+  const out = []; let cur = "", q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) {
+      if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+      else cur += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === delim) { out.push(cur.trim()); cur = ""; }
+    else cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
+// "-1 234,56" / "1.234,56-" / "-1,234.56" / "(12.50)" / "12,50 €" -> number (NaN if not an amount).
+function parseBankAmount(v) {
+  let s = String(v == null ? "" : v).trim();
+  if (!s) return NaN;
+  let neg = false;
+  if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
+  s = s.replace(/[\s  ']/g, "").replace(/€|\$|£|EUR|USD|GBP|CHF/gi, "");
+  if (/[-−]$/.test(s)) { neg = !neg; s = s.slice(0, -1); }
+  if (/^[+\-−]/.test(s)) { if (s[0] !== "+") neg = !neg; s = s.slice(1); }
+  if (!/^\d[\d.,]*$/.test(s)) return NaN;
+  const lastDot = s.lastIndexOf("."), lastComma = s.lastIndexOf(",");
+  if (lastDot !== -1 && lastComma !== -1) {
+    // Both: the last one is the decimal separator.
+    s = lastComma > lastDot ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
+  } else if (lastComma !== -1) {
+    s = (s.match(/,/g).length === 1 && /,\d{1,2}$/.test(s)) ? s.replace(",", ".") : s.replace(/,/g, "");
+  } else if (lastDot !== -1) {
+    if (s.match(/\./g).length > 1 || /^[1-9]\d{0,2}\.\d{3}$/.test(s)) s = s.replace(/\./g, ""); // 1.234 = thousands
+  }
+  const n = parseFloat(s);
+  return isNaN(n) ? NaN : (neg ? -n : n);
+}
+// Header names per column, best first (compared without accents / case).
+const BANK_COLUMNS = {
+  date: ["date operation", "dateop", "date de l operation", "buchungstag", "buchungsdatum", "buchung", "booking date", "transaction date", "posting date", "completed date", "started date", "date", "datum", "fecha", "data", "valuta", "wertstellung", "value date", "date valeur", "dateval"],
+  label: ["libelle", "label", "libelle operation", "description", "verwendungszweck", "payment reference", "beschreibung", "buchungstext", "details", "detail", "memo", "narrative", "concepto", "reference", "referenz", "transaction description"],
+  party: ["beguenstigter zahlungspflichtiger", "begunstigter auftraggeber", "auftraggeber empfanger", "auftraggeber empfaenger", "name zahlungsbeteiligter", "zahlungsempfanger in", "zahlungsempfaenger in", "zahlungsempfanger", "empfanger", "empfaenger", "begunstigter", "beguenstigter", "payee", "counterparty", "beneficiary", "beneficiaire", "name", "merchant", "tiers"],
+  // Some exports (DKB) have the payer and the payee in two columns: the other party is the payer when money comes in.
+  payer: ["zahlungspflichtige r", "zahlungspflichtiger", "auftraggeber", "payer"],
+  amount: ["amount", "montant", "betrag", "amount eur", "betrag eur", "umsatz", "importe", "valor", "bedrag", "montant de l operation", "transaction amount", "solde"],
+  debit: ["debit", "debit euros", "soll", "withdrawal", "withdrawals", "money out", "paid out", "ausgang", "sortie", "cargo"],
+  credit: ["credit", "credit euros", "haben", "deposit", "deposits", "money in", "paid in", "eingang", "entree", "abono"],
+  balance: ["balance", "saldo", "kontostand", "solde", "accountbalance", "running balance"],
+  bankCat: ["categorie", "category", "kategorie", "categoria"],
+  bankParent: ["categorie parent", "categorie parente", "categoryparent", "parent category"],
+  accountNum: ["numero compte", "accountnum", "account number", "kontonummer", "auftragskonto", "iban compte"],
+  accountLabel: ["libelle compte", "accountlabel", "account name", "kontobezeichnung"],
+};
+// Words that make a header NOT a label/party column (account numbers, suggestions…).
+const NOT_TEXT = /(compte|account|konto|iban|bic|sugg|id$|nummer|number|waehrung|wahrung|currency|devise)/;
+
+// Message when a statement can't be read: which columns weren't found.
+function csvErrorMessage(res) {
+  const names = { date: t("date"), amount: t("montant"), label: t("libellé") };
+  if (res && res.error === "columns") return t("Ce fichier n'a pas pu être lu : colonne(s) introuvable(s) : {cols}. Exportez le relevé au format CSV depuis votre banque (une ligne par opération, avec la date, le libellé et le montant).", { cols: res.missing.map((m) => names[m]).join(", ") });
+  return t("Aucune opération trouvée dans ce fichier. Exportez le relevé au format CSV depuis votre banque (une ligne par opération, avec la date, le libellé et le montant).");
+}
+function readBankCsv(text) {
+  text = String(text || "").replace(/^﻿/, "");
+  const lines = text.split(/\r\n|\n|\r/).filter((l) => l.trim().length > 0);
+  if (lines.length < 1) return { error: "empty" };
+  // Delimiter: the one that splits the most lines into the same number (≥ 3) of cells.
+  let delim = ";", best = -1;
+  for (const d of [";", ",", "\t", "|"]) {
+    const counts = {};
+    for (const l of lines.slice(0, 60)) { const n = splitCsvLine(l, d).length; if (n >= 3) counts[n] = (counts[n] || 0) + 1; }
+    const top = Math.max(0, ...Object.values(counts));
+    if (top > best) { best = top; delim = d; }
+  }
+  const table = lines.map((l) => splitCsvLine(l, delim));
+  const norm = (h) => normText(h);
+  const findCol = (header, kind, exclude = []) => {
+    const names = BANK_COLUMNS[kind];
+    for (const name of names) { // exact first, in order of preference
+      const i = header.findIndex((h, idx) => !exclude.includes(idx) && h === name);
+      if (i !== -1) return i;
+    }
+    for (const name of names) {
+      if (name.length < 4) continue;
+      const i = header.findIndex((h, idx) => !exclude.includes(idx) && h.includes(name) && !((kind === "label" || kind === "party" || kind === "payer") && NOT_TEXT.test(h)));
+      if (i !== -1) return i;
+    }
+    return -1;
+  };
+  // Header row: the first of the top lines naming a date column and an amount (or
+  // debit/credit) column, with at least two cells that are exactly a known column
+  // name (so "Datei erstellt am…" or "Umsatzanzeige" above the table don't count).
+  const known = new Set([].concat(...Object.values(BANK_COLUMNS)));
+  let headerIdx = -1, header = null;
+  for (let r = 0; r < Math.min(table.length, 40); r++) {
+    const h = table[r].map(norm);
+    if (h.filter((x) => known.has(x)).length < 2) continue;
+    const hasDate = findCol(h, "date") !== -1;
+    const hasMoney = findCol(h, "amount") !== -1 || (findCol(h, "debit") !== -1 && findCol(h, "credit") !== -1);
+    if (hasDate && hasMoney) { headerIdx = r; header = h; break; }
+  }
+  const body = headerIdx === -1 ? table : table.slice(headerIdx + 1);
+  const width = Math.max(0, ...body.map((r) => r.length));
+  const col = {};
+  if (header) {
+    for (const kind of Object.keys(BANK_COLUMNS)) col[kind] = findCol(header, kind);
+    // BoursoBank names the amount "Solde" and the balance "Solde" too: the 2nd one is the balance.
+    if (col.balance === col.amount) {
+      const again = header.findIndex((h, i) => i !== col.amount && BANK_COLUMNS.balance.includes(h));
+      col.balance = again;
+    }
+    if (col.bankCat === col.bankParent) col.bankCat = header.findIndex((h, i) => i !== col.bankParent && BANK_COLUMNS.bankCat.includes(h));
+    if (col.party === col.label) col.party = -1;
+    if (col.payer === col.party) col.payer = -1;
+    // A combined "Soll/Haben" indicator column (S / H) next to a positive amount.
+    col.sh = header.findIndex((h) => /^(soll haben|s h)$/.test(h));
+  } else {
+    for (const kind of Object.keys(BANK_COLUMNS)) col[kind] = -1;
+    col.sh = -1;
+  }
+  // No usable header: recognise columns from their content.
+  const share = (i, test) => { const vals = body.map((r) => r[i]).filter((v) => v !== undefined && v !== ""); return vals.length ? vals.filter(test).length / vals.length : 0; };
+  if (col.date === -1) {
+    let bi = -1, bs = 0.7;
+    for (let i = 0; i < width; i++) { const s = share(i, (v) => dateToDayNumber(v) !== null); if (s > bs) { bs = s; bi = i; } }
+    col.date = bi;
+  }
+  if (col.amount === -1 && (col.debit === -1 || col.credit === -1)) {
+    let bi = -1, bs = 0.7;
+    for (let i = 0; i < width; i++) {
+      if (i === col.date) continue;
+      const s = share(i, (v) => !isNaN(parseBankAmount(v)) && /[.,]\d{2}\b|^-/.test(v.trim()));
+      if (s > bs) { bs = s; bi = i; }
+    }
+    col.amount = bi;
+  }
+  if (col.label === -1 && col.party === -1) {
+    let bi = -1, bl = 0;
+    for (let i = 0; i < width; i++) {
+      if (i === col.date || i === col.amount) continue;
+      const vals = body.map((r) => r[i] || "").filter((v) => v && isNaN(parseBankAmount(v)) && dateToDayNumber(v) === null);
+      const avg = vals.length ? vals.reduce((a, v) => a + v.length, 0) / body.length : 0;
+      if (avg > bl) { bl = avg; bi = i; }
+    }
+    col.label = bi;
+  }
+  const missing = [];
+  if (col.date === -1) missing.push("date");
+  if (col.amount === -1 && (col.debit === -1 || col.credit === -1)) missing.push("amount");
+  if (col.label === -1 && col.party === -1) missing.push("label");
+  if (missing.length) return { error: "columns", missing };
+
+  // US-style month-first dates (10/31/2026) are turned into 2026-10-31; day-first dates are kept as exported.
+  const dmy = body.map((r) => (r[col.date] || "").match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/)).filter(Boolean);
+  const monthFirst = dmy.some((m) => +m[2] > 12) && !dmy.some((m) => +m[1] > 12);
+  const fixDate = (d) => {
+    if (!monthFirst) return d;
+    const m = d.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
+    if (!m) return d;
+    const y = m[3].length === 2 ? "20" + m[3] : m[3];
+    return `${y}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+  };
+
+  const rows = [];
+  for (const c of body) {
+    const date = (c[col.date] || "").trim();
+    if (!date || dateToDayNumber(date) === null) continue;
+    let amount = NaN;
+    if (col.amount !== -1) amount = parseBankAmount(c[col.amount]);
+    if ((isNaN(amount) || col.amount === -1) && col.debit !== -1 && col.credit !== -1) {
+      const d = parseBankAmount(c[col.debit]), cr = parseBankAmount(c[col.credit]);
+      if (!isNaN(d) || !isNaN(cr)) amount = (isNaN(cr) ? 0 : Math.abs(cr)) - (isNaN(d) ? 0 : Math.abs(d));
+    }
+    if (isNaN(amount)) continue;
+    if (col.sh !== -1 && /^s$/i.test((c[col.sh] || "").trim())) amount = -Math.abs(amount);
+    const text = (c[col.label] || "").trim();
+    const partyCol = amount > 0 && col.payer !== -1 && (c[col.payer] || "").trim() ? col.payer : col.party;
+    const party = partyCol !== -1 ? (c[partyCol] || "").trim() : "";
+    // The other party first (best for recognising the merchant), then the purpose.
+    const label = party && !normText(text).includes(normText(party)) ? (party + (text ? " " + text : "")) : (text || party);
+    const balance = col.balance !== -1 ? parseBankAmount(c[col.balance]) : NaN;
+    rows.push({
+      date: fixDate(date), label: label || "(sans libellé)", amount,
+      bankCat: col.bankCat !== -1 ? (c[col.bankCat] || "").trim() : "",
+      bankParent: col.bankParent !== -1 ? (c[col.bankParent] || "").trim() : "",
+      balance: isNaN(balance) ? null : balance,
+      accountNum: col.accountNum !== -1 ? (c[col.accountNum] || "").trim() : "",
+      accountLabel: col.accountLabel !== -1 ? (c[col.accountLabel] || "").trim() : "",
+    });
+  }
+  return { rows };
 }
 
 // ---------- Savings statement PDF (LCL format) ----------
@@ -1712,22 +1925,8 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
     (transactions[m] || []).find((tx) => tx.id !== excludeId && isDuplicateOf(tx, candidate));
 
   const parseCsv = (text, targetMonth) => {
-    text = text.replace(/^\uFEFF/, ""); // strip UTF-8 BOM some bank exports include
-    const lines = text.split(/\r\n|\n/).filter((l) => l.trim().length > 0);
-    if (lines.length < 2) return [];
-    const delim = (lines[0].match(/;/g) || []).length >= (lines[0].match(/,/g) || []).length ? ";" : ",";
-    const splitLine = (line) => line.split(delim).map((c) => c.trim().replace(/^"|"$/g, ""));
-    const header = splitLine(lines[0]).map((h) => h.toLowerCase());
-    const dateIdx = header.findIndex((h) => h.includes("date"));
-    const labelIdx = header.findIndex((h) => h.includes("label") || h.includes("libell"));
-    // BoursoBank confusingly calls the transaction amount column "Solde" (normally
-    // "balance") — and repeats "Solde" again later for the real running balance.
-    // findIndex takes the FIRST match, which is correctly the transaction amount.
-    const amountIdx = header.findIndex((h) => h.includes("amount") || h.includes("montant") || h.includes("solde"));
-    // Optional: the bank's own category column, if present (used for auto-categorization below).
-    const bankCatIdx = header.findIndex((h) => ["catégorie", "categorie", "category"].includes(h));
-    const bankParentIdx = header.findIndex((h) => ["catégorie parent", "categorie parent", "categoryparent"].includes(h));
-    if (dateIdx === -1 || labelIdx === -1 || amountIdx === -1) return "invalid";
+    const table = readBankCsv(text); // any bank's export: see readBankCsv()
+    if (table.error) return table;
 
     // Re-importing is always safe: a statement exported on the 10th and another
     // on the 28th overlap, and the overlap is skipped. Each file row is matched
@@ -1762,20 +1961,9 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
     };
     const history = buildHistoryIndex();
 
-    const candidates = [];
-    for (let i = 1; i < lines.length; i++) {
-      const cells = splitLine(lines[i]);
-      if (cells.length <= Math.max(dateIdx, labelIdx, amountIdx)) continue;
-      const rawAmount = (cells[amountIdx] || "").replace(/\s/g, "").replace(",", ".");
-      const amount = parseFloat(rawAmount);
-      if (isNaN(amount)) continue;
-      // Sign convention in the app: positive = money spent, negative = money
-      // received. The bank's sign is the opposite (negative = spent), so flip it.
-      const label = cells[labelIdx] || "(sans libellé)";
-      const bankCat = bankCatIdx !== -1 ? (cells[bankCatIdx] || "").trim() : "";
-      const bankParent = bankParentIdx !== -1 ? (cells[bankParentIdx] || "").trim() : "";
-      candidates.push({ date: cells[dateIdx] || "", label, amount: -amount, bankCat, bankParent });
-    }
+    // Sign convention in the app: positive = money spent, negative = money
+    // received. The bank's sign is the opposite (negative = spent), so flip it.
+    const candidates = table.rows.map((r) => ({ date: r.date, label: r.label, amount: -r.amount, bankCat: r.bankCat, bankParent: r.bankParent }));
     for (const c of candidates) c.duplicate = claimExact(signatureOf(c));
     for (const c of candidates) if (!c.duplicate) c.duplicate = claimFuzzy(c);
 
@@ -1817,37 +2005,15 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
 
   // ---------- Savings account import (separate from the budget) ----------
   const savingsInputRef = useRef(null);
-  const parseNumber = (v) => parseFloat(String(v || "").replace(/[\s\u00a0\u202f]/g, "").replace(",", "."));
   const parseSavingsCsv = (text) => {
-    text = text.replace(/^\uFEFF/, "");
-    const lines = text.split(/\r\n|\n/).filter((l) => l.trim().length > 0);
-    if (lines.length < 2) return "invalid";
-    const delim = (lines[0].match(/;/g) || []).length >= (lines[0].match(/,/g) || []).length ? ";" : ",";
-    const split = (line) => line.split(delim).map((c) => c.trim().replace(/^"|"$/g, ""));
-    const header = split(lines[0]).map((h) => h.toLowerCase());
-    const dateIdx = header.findIndex((h) => h.includes("date"));
-    const labelIdx = header.findIndex((h) => (h.includes("libell") || h === "label") && !h.includes("compte") && !h.includes("sugg"));
-    const amountIdx = header.findIndex((h) => h.includes("montant") || h === "amount" || h.includes("solde"));
-    // BoursoBank: the 1st "Solde" column is the amount, the 2nd one the account balance after that day.
-    const balanceIdx = header.findIndex((h, i) => i !== amountIdx && (h.includes("solde") || h.includes("balance")));
-    const accNumIdx = header.findIndex((h) => h.includes("numéro compte") || h.includes("numero compte") || h === "accountnum");
-    const accLabelIdx = header.findIndex((h) => h.includes("libellé compte") || h.includes("libelle compte") || h === "accountlabel");
-    if (dateIdx === -1 || labelIdx === -1 || amountIdx === -1) return "invalid";
-    const rows = [];
-    for (let i = 1; i < lines.length; i++) {
-      const c = split(lines[i]);
-      const amount = parseNumber(c[amountIdx]);
-      if (isNaN(amount) || !c[dateIdx]) continue;
-      const balance = balanceIdx !== -1 ? parseNumber(c[balanceIdx]) : NaN;
-      const label = c[labelIdx] || "(sans libellé)";
-      rows.push({
-        account: (accNumIdx !== -1 && c[accNumIdx]) || (accLabelIdx !== -1 && c[accLabelIdx]) || "epargne",
-        accountLabel: (accLabelIdx !== -1 && c[accLabelIdx]) || t("Compte d'épargne"),
-        date: c[dateIdx], label, amount, balance: isNaN(balance) ? null : balance,
-        importSig: c[dateIdx] + "|" + amount.toFixed(2) + "|" + label.trim().toLowerCase(),
-      });
-    }
-    return rows;
+    const table = readBankCsv(text); // any bank's export: see readBankCsv()
+    if (table.error) return table;
+    return table.rows.map((r) => ({
+      account: r.accountNum || r.accountLabel || "epargne",
+      accountLabel: r.accountLabel || t("Compte d'épargne"),
+      date: r.date, label: r.label, amount: r.amount, balance: r.balance,
+      importSig: r.date + "|" + r.amount.toFixed(2) + "|" + r.label.trim().toLowerCase(),
+    }));
   };
   // pdf.js is only loaded (from cdnjs) the first time a PDF statement is imported.
   const loadPdfJs = () => new Promise((resolve, reject) => {
@@ -1945,15 +2111,12 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
       reader.readAsArrayBuffer(file);
     } else {
       reader.onload = (ev) => {
-        const content = ev.target.result;
+        const content = decodeBankFile(ev.target.result);
         const rows = parseSavingsCsv(content);
-        if (rows === "invalid" || rows.length === 0) {
-          window.alert(t("Colonnes attendues introuvables (date, libellé, montant). Vérifiez le fichier exporté de votre compte d'épargne."));
-          return;
-        }
+        if (rows.error || rows.length === 0) { window.alert(csvErrorMessage(rows)); return; }
         mergeSavingsRows(rows, file.name, content, "");
       };
-      reader.readAsText(file, "utf-8");
+      reader.readAsArrayBuffer(file);
     }
   };
   const removeSavingsAccount = (key) => {
@@ -2040,12 +2203,9 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
     const targetLabel = displayMonth(months.find((m) => m.id === targetMonth)?.label) || targetMonth;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const content = ev.target.result;
+      const content = decodeBankFile(ev.target.result);
       const parsed = parseCsv(content, targetMonth);
-      if (parsed === "invalid") {
-        window.alert(t("Colonnes attendues introuvables (date, libellé/label, montant). Vérifiez le format du fichier exporté."));
-        return;
-      }
+      if (parsed.error || parsed.length === 0) { window.alert(csvErrorMessage(parsed)); return; }
       const dupCount = parsed.filter((r) => r.duplicate).length;
       const newRows = parsed.filter((r) => !r.duplicate).map(({ duplicate, ...r }) => r);
 
@@ -2103,7 +2263,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
       setShowTransactions(true);
       saveImportFile(file.name, content, targetMonth, newRows.length, dupCount);
     };
-    reader.readAsText(file, "utf-8");
+    reader.readAsArrayBuffer(file);
     e.target.value = "";
   };
 
@@ -2374,7 +2534,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
             <button className={view === "epargne" ? "active" : ""} onClick={() => setView("epargne")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg>{t("Épargne")}</button>
           </nav>
           <div className="appbar-actions">
-            <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={handleCsvFile} style={{ display: "none" }} />
+            <input ref={csvInputRef} type="file" accept=".csv,.txt,.tsv,text/csv,text/plain" onChange={handleCsvFile} style={{ display: "none" }} />
             <LangSwitch lang={lang} onChange={onLang} />
             <span className="save-pill">{t(saveState === "saving" ? "Enregistrement…" : saveState === "error" ? "⚠ Erreur d'enregistrement" : "✓ Enregistré")}</span>
             <button className="reset-btn" onClick={undo} disabled={undoCount === 0} style={{ opacity: undoCount === 0 ? 0.45 : 1, cursor: undoCount === 0 ? "default" : "pointer" }} title={t("Annuler la dernière modification (Ctrl+Z / ⌘Z)")}>
@@ -2438,7 +2598,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
       </React.Fragment>)}
 
       {view === "epargne" && (<React.Fragment>
-        <input ref={savingsInputRef} type="file" accept=".csv,.pdf,text/csv,application/pdf" onChange={handleSavingsFile} style={{ display: "none" }} />
+        <input ref={savingsInputRef} type="file" accept=".csv,.txt,.tsv,.pdf,text/csv,text/plain,application/pdf" onChange={handleSavingsFile} style={{ display: "none" }} />
         <div className="month-bar">
           <div className="acc-pills" role="tablist" aria-label={t("Comptes d'épargne")}>
             {savingsList.map((a) => (
