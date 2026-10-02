@@ -1114,9 +1114,11 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const removeMonth = (id) => {
     const m = months.find((x) => x.id === id);
     const n = (transactions[id] || []).length;
+    const nFiles = importFiles.filter((f) => f.month_id === id).length;
     if (!window.confirm(
       `Êtes-vous sûr de vouloir supprimer l'onglet « ${m?.label || ""} » ?\n\n` +
-      `Tout ce qui lui est lié sera supprimé : ${n} transaction(s), revenus et épargne du mois.\n` +
+      `Tout ce qui lui est lié sera supprimé : ${n} transaction(s), revenus et épargne du mois` +
+      (nFiles ? `, et ${nFiles} relevé(s) importé(s) (définitif)` : "") + `.\n` +
       `(Vous pourrez encore revenir en arrière avec « ↶ Annuler » tant que la page reste ouverte.)`
     )) return;
     // Remove every piece of data keyed by this month, not just the tab.
@@ -1126,6 +1128,10 @@ function BudgetTracker({ household, onLogout, onRename }) {
     setIncome(without);
     setSavings(without);
     setActuals(without);
+    if (nFiles) {
+      sb.from("household_imports").delete().eq("household_id", household.id).eq("month_id", id)
+        .then(({ error }) => { if (!error) setImportFiles((fs) => fs.filter((f) => f.month_id !== id)); });
+    }
     if (selectedMonth === id) { const rest = months.filter((m) => m.id !== id); if (rest.length) setSelectedMonth(rest[0].id); }
   };
   const [editingMonthId, setEditingMonthId] = useState(null);
@@ -1197,6 +1203,8 @@ function BudgetTracker({ household, onLogout, onRename }) {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
+  // Statements archived for the month on screen (savings PDFs have no month and aren't listed here).
+  const monthImportFiles = importFiles.filter((f) => f.month_id === selectedMonth);
   const deleteImportFile = async (f) => {
     if (!window.confirm(`Supprimer le fichier « ${f.file_name} » ? (Les transactions importées restent.)`)) return;
     const { error } = await sb.from("household_imports").delete().eq("id", f.id);
@@ -2689,19 +2697,18 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
       <div className="panel">
         <div className="panel-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setShowImportFiles((v) => !v)}>
-          <span>Relevés CSV importés ({importFiles.length})</span>
+          <span>Relevés importés pour {curMonthLabel} ({monthImportFiles.length})</span>
           <span style={{ fontSize: 12, color: "var(--gold)" }}>{showImportFiles ? "Masquer ▲" : "Voir ▼"}</span>
         </div>
         {showImportFiles && (
-          importFiles.length === 0 ? (
-            <div className="import-hint" style={{ padding: 16 }}>Aucun relevé importé pour l'instant. Chaque fichier importé est conservé ici et peut être re-téléchargé.</div>
+          monthImportFiles.length === 0 ? (
+            <div className="import-hint" style={{ padding: 16 }}>Aucun relevé importé pour ce mois. Chaque fichier importé est conservé ici et peut être re-téléchargé.</div>
           ) : (
-            importFiles.map((f) => (
+            monthImportFiles.map((f) => (
               <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderBottom: "1px solid var(--rule)", fontSize: 12, flexWrap: "wrap" }}>
                 <span style={{ flex: "1 1 200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={f.file_name}>{f.file_name}</span>
                 <span style={{ color: "var(--ink-soft)" }}>
                   {new Date(f.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
-                  {" · "}{months.find((m) => m.id === f.month_id)?.label || "—"}
                   {" · "}{f.imported_count} importée(s){f.skipped_count > 0 ? `, ${f.skipped_count} déjà présente(s)` : ""}
                 </span>
                 <button className="reset-btn" onClick={() => downloadImportFile(f)}>↓ Télécharger</button>
