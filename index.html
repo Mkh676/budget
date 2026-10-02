@@ -2082,7 +2082,8 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
       const sources = isDup ? [] : [
         ["rule", () => categoryExists(categoryRules[key]) && categoryRules[key]],
         ["fee", () => fee && fee.categoryId],
-        ["internal", () => transferCat && isInternalTransfer(label) && transferCat.id],
+        // Money between our own accounts: on the joint account, what members put in is household income.
+        ["internal", () => isInternalTransfer(label) && ((space.kind === "household" && candidate.amount < 0 ? salaireCat?.id : transferCat?.id) || "")],
         ["history", () => history[key]],
         ["bank", () => bankCategoryId(bankCat) || bankCategoryId(candidate.bankParent)],
         ["withdrawal", () => operationType(label) === "withdrawal" && withdrawalCategoryId()],
