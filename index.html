@@ -576,6 +576,12 @@ function monthSortKey(m) { return (m.date && m.date.slice(0, 7)) || monthLabelTo
 // (e.g. an old freeform tab) are kept first, in their original relative order,
 // since they predate the introduction of month-tagging.
 // The month tab for today (local time). If it doesn't exist yet, the latest month before today.
+// "#depenses/<monthId>" -> { view: "depenses", key: monthId }; anything else -> home.
+function readPlaceFromUrl() {
+  const m = window.location.hash.match(/^#(accueil|depenses|epargne)(?:\/(.+))?$/);
+  if (!m) return { view: "home", key: null };
+  return { view: m[1] === "accueil" ? "home" : m[1], key: m[2] ? decodeURIComponent(m[2]) : null };
+}
 function currentMonthId(list) {
   const now = new Date();
   const nowKey = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
@@ -848,9 +854,11 @@ function BudgetTracker({ household, onLogout, onRename }) {
   // Revenus & épargne card: lines at 0 are hidden, except ones just added.
   const [freshIncome, setFreshIncome] = useState({});
   const [manualSavingsOpen, setManualSavingsOpen] = useState({}); // { [monthId]: true }
-  const [view, setView] = useState("home"); // "home" | "depenses" | "epargne"
+  // Where you are is kept in the address (#depenses/<month>, #epargne/<account>) so a refresh stays there.
+  const initialPlace = readPlaceFromUrl();
+  const [view, setView] = useState(initialPlace.view); // "home" | "depenses" | "epargne"
   const [editBudgets, setEditBudgets] = useState(false); // categories: bars (false) or the editable table (true)
-  const [selectedAccount, setSelectedAccount] = useState(null); // savings account shown on the Épargne page // { salaire: bool, epargne: bool } — detail list under the "(auto)" lines
+  const [selectedAccount, setSelectedAccount] = useState(initialPlace.view === "epargne" ? initialPlace.key : null); // savings account shown on the Épargne page // { salaire: bool, epargne: bool } — detail list under the "(auto)" lines
   const [dragCategoryId, setDragCategoryId] = useState(null);
   const [dragOverCategoryId, setDragOverCategoryId] = useState(null);
   const saveTimer = useRef(null);
@@ -896,12 +904,20 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
       setCategories(doc.categories); setMonths(sortMonthsChronologically(doc.months)); setIncome(doc.income);
       setSavings(doc.savings); setRecurringFees(doc.recurringFees || []); setCategoryRules(doc.categoryRules || {}); setSavingsAccounts(doc.savingsAccounts || {});
-      setSelectedMonth(currentMonthId(doc.months));
+      const fromUrl = initialPlace.view === "depenses" && doc.months.find((m) => m.id === initialPlace.key);
+      setSelectedMonth(fromUrl ? fromUrl.id : currentMonthId(doc.months));
       setLoaded(true);
     })();
   }, [household.id]);
 
   // Accueil and Dépenses always open on the current month.
+  useEffect(() => {
+    if (!loaded) return;
+    const place = view === "depenses" && selectedMonth ? "#depenses/" + encodeURIComponent(selectedMonth)
+      : view === "epargne" ? "#epargne" + (selectedAccount ? "/" + encodeURIComponent(selectedAccount) : "")
+      : "#accueil";
+    if (window.location.hash !== place) window.history.replaceState(null, "", window.location.pathname + window.location.search + place);
+  }, [loaded, view, selectedMonth, selectedAccount]);
   const goTo = (v) => { setView(v); const id = currentMonthId(months); if (id) setSelectedMonth(id); };
 
   // Auto-detect/create a tab for the real current calendar month. Runs once
