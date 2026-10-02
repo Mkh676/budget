@@ -188,8 +188,8 @@
   .hero-num { font-family: var(--font-mono); font-size: 22px; font-weight: 600; }
   .bar-track { height: 10px; border-radius: 99px; background: var(--track); overflow: hidden; }
   .hero .bar-track { background: rgba(27,30,33,0.10); }
-  .bar-fill { height: 100%; border-radius: 99px; background: var(--blue); }
-  .bar-fill.over { background: var(--red); } .bar-fill.near { background: var(--saffron); } .bar-fill.none { background: #C9CCCF; }
+  .bar-fill { height: 100%; border-radius: 99px; background: var(--green); }
+  .bar-fill.over { background: var(--red); } .bar-fill.reached { background: var(--gold); } .bar-fill.none { background: #C9CCCF; }
 
   /* Categories as bars */
   .cat-list { padding: 4px 22px 10px; }
@@ -199,7 +199,7 @@
   .cat-name { font-weight: 600; }
   .cat-amt { font-family: var(--font-mono); font-size: 14px; white-space: nowrap; }
   .cat-state { font-size: 12px; font-weight: 500; color: var(--green); }
-  .cat-state.over { color: var(--red); font-weight: 700; } .cat-state.near { color: var(--amber); } .cat-state.none { color: var(--ink-soft); }
+  .cat-state.over { color: var(--red); font-weight: 700; } .cat-state.reached { color: var(--gold); font-weight: 700; } .cat-state.none { color: var(--ink-soft); }
 
   /* Home */
   .home-hello { max-width: 1080px; margin: 8px auto 26px; display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; flex-wrap: wrap; }
@@ -1798,12 +1798,12 @@ function BudgetTracker({ household, onLogout, onRename }) {
   const barData = expenseCategories.map((c) => ({ name: c.name.length > 14 ? c.name.slice(0, 13) + "…" : c.name, Budget: Number(c.budget) || 0, Réel: categoryTotal(selectedMonth, c.id) }));
   const sortedMonths = sortMonthsChronologically(months);
   const curIdx = sortedMonths.findIndex((m) => m.id === selectedMonth);
-  // Category bars for the selected month: state = over / near (≥ 90 %) / ok / none (no budget).
+  // Category bars for the selected month: state = over (red) / reached (blue) / near (≥ 90 %) and ok (green) / none (no budget).
   const catRows = expenseCategories.map((c) => {
     const spent = categoryTotal(selectedMonth, c.id), budget = Number(c.budget) || 0;
     // Within 50 cents of the budget counts as exactly reached (the note would otherwise say "reste 0 €").
     const reached = budget > 0 && Math.abs(budget - spent) < 0.5;
-    const state = budget <= 0 ? "none" : reached ? "near" : spent > budget ? "over" : spent >= 0.9 * budget ? "near" : "ok";
+    const state = budget <= 0 ? "none" : reached ? "reached" : spent > budget ? "over" : spent >= 0.9 * budget ? "near" : "ok";
     const note = state === "none" ? (spent ? "hors budget" : "pas de budget") : reached ? "budget atteint" : state === "over" ? `+${fmt(Math.round(spent - budget))} au-dessus` : state === "near" ? `presque atteint · reste ${fmt(Math.round(budget - spent))}` : `reste ${fmt(Math.round(budget - spent))}`;
     return { id: c.id, name: c.name, spent, budget, state, note, pct: budget > 0 ? Math.min(100, (spent / budget) * 100) : (spent ? 100 : 0) };
   }).filter((c) => c.spent !== 0 || c.budget > 0)
@@ -1937,10 +1937,10 @@ function BudgetTracker({ household, onLogout, onRename }) {
             <span className="home-kicker"><span>Dépenses · {curMonthLabel}</span><span>Ouvrir →</span></span>
             <span className="home-big">{fmt(Math.round(curActualTotal))}</span>
             <span className="home-line">dépensés sur un budget de <strong style={{ color: "var(--ink)" }}>{fmt(Math.round(monthBudgetTotal))}</strong></span>
-            <span className="bar-track" style={{ background: "rgba(27,30,33,0.10)" }}><span className={"bar-fill " + (curActualTotal > monthBudgetTotal ? "over" : curActualTotal >= 0.9 * monthBudgetTotal ? "near" : "")} style={{ display: "block", width: Math.min(100, monthBudgetTotal > 0 ? (curActualTotal / monthBudgetTotal) * 100 : 0) + "%" }}></span></span>
+            <span className="bar-track" style={{ background: "rgba(27,30,33,0.10)" }}><span className={"bar-fill " + (monthBudgetTotal > 0 && Math.abs(curActualTotal - monthBudgetTotal) < 0.5 ? "reached" : curActualTotal > monthBudgetTotal ? "over" : "")} style={{ display: "block", width: Math.min(100, monthBudgetTotal > 0 ? (curActualTotal / monthBudgetTotal) * 100 : 0) + "%" }}></span></span>
             <span style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 14, flexWrap: "wrap" }}>
               {monthBudgetTotal > 0 && Math.abs(curActualTotal - monthBudgetTotal) < 0.5
-                ? <strong style={{ color: "var(--amber)" }}>Budget atteint</strong>
+                ? <strong style={{ color: "var(--gold)" }}>Budget atteint</strong>
                 : curActualTotal > monthBudgetTotal
                 ? <strong style={{ color: "var(--red)" }}>Budget dépassé de {fmt(Math.round(curActualTotal - monthBudgetTotal))}</strong>
                 : <strong style={{ color: "var(--green)" }}>Il reste {fmt(Math.round(monthBudgetTotal - curActualTotal))} de budget</strong>}
@@ -2109,7 +2109,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div className="hero-label">Dépensé / budget</div>
           <div className="hero-num">{fmt(Math.round(curActualTotal))} <span style={{ fontSize: 15, color: "var(--ink-soft)" }}>/ {fmt(Math.round(monthBudgetTotal))}</span></div>
-          <div className="bar-track"><div className={"bar-fill " + (curActualTotal > monthBudgetTotal ? "over" : curActualTotal >= 0.9 * monthBudgetTotal ? "near" : "")} style={{ width: Math.min(100, monthBudgetTotal > 0 ? (curActualTotal / monthBudgetTotal) * 100 : 0) + "%" }}></div></div>
+          <div className="bar-track"><div className={"bar-fill " + (monthBudgetTotal > 0 && Math.abs(curActualTotal - monthBudgetTotal) < 0.5 ? "reached" : curActualTotal > monthBudgetTotal ? "over" : "")} style={{ width: Math.min(100, monthBudgetTotal > 0 ? (curActualTotal / monthBudgetTotal) * 100 : 0) + "%" }}></div></div>
           <div style={{ fontSize: 13, fontWeight: 700, color: curActualTotal > monthBudgetTotal ? "var(--red)" : "var(--green)" }}>
             {monthBudgetTotal > 0 ? Math.round((curActualTotal / monthBudgetTotal) * 100) + " % · " : ""}
             {Math.abs(curActualTotal - monthBudgetTotal) < 0.5 ? "budget atteint" : curActualTotal > monthBudgetTotal ? `+${fmt(Math.round(curActualTotal - monthBudgetTotal))} au-dessus` : `${fmt(Math.round(monthBudgetTotal - curActualTotal))} de marge`}
@@ -2132,15 +2132,8 @@ function BudgetTracker({ household, onLogout, onRename }) {
               const diff = (Number(c.budget) || 0) - total;
               const budget = Number(c.budget) || 0;
               const pct = budget > 0 ? Math.min(150, (total / budget) * 100) : (total > 0 ? 150 : 0);
-              // Progressive yellow shade from pale (low spend) to deep amber (approaching budget) —
-              // green right on target, red once over.
-              const yellowShade = (p) => {
-                const t = Math.max(0, Math.min(1, p / 100));
-                const sat = 35 + t * 45; // 35% -> 80%
-                const light = 82 - t * 40; // 82% -> 42%
-                return `hsl(44, ${sat}%, ${light}%)`;
-              };
-              const barColor = pct > 100 ? "var(--red)" : Math.round(pct) === 100 ? "var(--green)" : yellowShade(pct);
+              // Green under budget, blue right on budget, red once over.
+              const barColor = budget > 0 && Math.abs(budget - total) < 0.5 ? "var(--gold)" : pct > 100 ? "var(--red)" : "var(--green)";
               return (
                 <tr
                   key={c.id}
