@@ -948,6 +948,13 @@ const STANDARD_CATEGORIES = [
   ["salaire", "Salaire", "Salary"],
   ["epargne", "Épargne", "Savings"],
 ];
+// Name to show for a category: a standard category that still has its default
+// name (French or English) is shown in the current language; a renamed one as typed.
+function categoryLabel(c) {
+  const std = STANDARD_CATEGORIES.find(([id]) => id === c.id);
+  if (std && (c.name === std[1] || c.name === std[2])) return LANG === "en" ? std[2] : std[1];
+  return c.name;
+}
 function emptyBudgetDoc(lang) {
   const categories = STANDARD_CATEGORIES.map(([id, fr, en]) => ({ id, name: lang === "en" ? en : fr, budget: 0 }));
   // Starts with the current month (labels are stored in French; they're translated for display).
@@ -1163,7 +1170,9 @@ function HouseholdSetup({ session, onReady }) {
 // ---------- Main budget tracker (shared, per household) ----------
 function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
   const [loaded, setLoaded] = useState(false);
-  const [categories, setCategories] = useState([]);
+  const [rawCategories, setCategories] = useState([]); // as saved
+  // As shown: standard categories still carrying their default name follow the chosen language.
+  const categories = rawCategories.map((c) => ({ ...c, name: categoryLabel(c) }));
   const [months, setMonths] = useState([]);
   const [income, setIncome] = useState({});
   const [savings, setSavings] = useState({});
@@ -1301,12 +1310,12 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       const { error } = await sb.from("household_budget")
-        .update({ data: { categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, migratedActuals: true }, updated_at: new Date().toISOString() })
+        .update({ data: { categories: rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, migratedActuals: true }, updated_at: new Date().toISOString() })
         .eq("household_id", household.id);
       setSaveState(error ? "error" : "saved");
     }, 500);
     return () => clearTimeout(saveTimer.current);
-  }, [categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, loaded]);
+  }, [rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, loaded]);
 
   // ---------- Undo ----------
   // Every change to the budget data pushes the previous state onto a stack.
@@ -1321,7 +1330,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
   const [undoCount, setUndoCount] = useState(0);
   useEffect(() => {
     if (!loaded) return;
-    const snap = { categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts };
+    const snap = { categories: rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts };
     const now = Date.now();
     if (!lastSnapshot.current) undoReadyAt.current = now + 1500;
     if (restoringUndo.current) {
@@ -1336,7 +1345,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
     }
     if (lastSnapshot.current) lastChangeAt.current = now;
     lastSnapshot.current = snap;
-  }, [categories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, loaded]);
+  }, [rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, loaded]);
 
   const undo = () => {
     const prev = undoStack.current[undoStack.current.length - 1];
