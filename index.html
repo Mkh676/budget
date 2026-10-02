@@ -531,7 +531,7 @@ const EN = {
   "Total": "Total",
   "+ Ajouter une catégorie": "+ Add a category",
   "Le montant « Réel » est calculé automatiquement à partir des transactions.": "The \"Actual\" amount is computed automatically from the transactions.",
-  " Salaire, Autres revenus et Épargne n'apparaissent pas ici : voir « Revenus » et « Épargné ».": " Salary, Other income and Savings don't appear here: see \"Income\" and \"Saved\".",
+  " Revenus, Épargne et Virements internes n'apparaissent pas ici.": " Income, Savings and Internal transfers don't appear here.",
   "opération": "operation",
   "Compté dans le total — classez-les dans « Transactions »": "Counted in the total — sort them in \"Transactions\"",
   "Aucune dépense ce mois-ci pour l'instant.": "No spending this month yet.",
@@ -689,13 +689,14 @@ const EN = {
   "Perso ·": "Personal ·",
   "budget perso de {name}": "{name}'s personal budget",
   "vue d'ensemble": "overview",
-  "Versé au foyer": "Sent to household",
-  "revenus − dépenses − épargne − versé au foyer": "income − spending − savings − sent to household",
+  "Virements internes": "Internal transfers",
+  "revenus − dépenses − épargne ± virements internes": "income − spending − savings ± internal transfers",
+  "Virement entre vos comptes (nom d'un membre ou « virement depuis/vers ») — à vérifier": "Transfer between your accounts (a member's name or \"virement depuis/vers\") — to check",
   "Aucune donnée pour l'instant.": "No data yet.",
   "Dépenses totales": "Total spending",
   "Épargné ce mois": "Saved this month",
   "Épargne totale (tous les comptes)": "Total savings (all accounts)",
-  "Les virements de « Virement vers le foyer » ne sont pas comptés comme dépenses, pour ne pas compter deux fois le même argent.": "Transfers in \"Transfer to household\" aren't counted as spending, so the same money isn't counted twice.",
+  "Les « Virements internes » (entre vos comptes) ne sont pas comptés comme dépenses, pour ne pas compter deux fois le même argent.": "\"Internal transfers\" (between your accounts) aren't counted as spending, so the same money isn't counted twice.",
   "date": "date",
   "montant": "amount",
   "Ce fichier n'a pas pu être lu : colonne(s) introuvable(s) : {cols}. Exportez le relevé au format CSV depuis votre banque (une ligne par opération, avec la date, le libellé et le montant).": "This file couldn't be read: column(s) not found: {cols}. Export the statement as CSV from your bank (one line per operation, with the date, label and amount).",
@@ -1095,6 +1096,7 @@ const CATEGORY_SOURCE_LABELS = {
   bank: "D'après la catégorie de la banque",
   withdrawal: "Retrait d'espèces",
   keyword: "Devinée d'après le libellé — à vérifier",
+  internal: "Virement entre vos comptes (nom d'un membre ou « virement depuis/vers ») — à vérifier",
 };
 const LABEL_NOISE_WORDS = new Set([
   "cb", "ref", "fact", "facture", "echeance", "le", "la", "les", "du", "de", "des", "at", "sa", "sas", "sarl",
@@ -1177,21 +1179,23 @@ const STANDARD_CATEGORIES = [
   ["travaux", "Maison & équipement", "Home & equipment"],
   ["taxe_fonciere", "Impôts & taxes", "Taxes"],
   ["divers", "Divers", "Other"],
-  ["salaire", "Salaire", "Salary"],
+  ["salaire", "Salaire", "Salary", "personal"],
+  ["revenus_foyer", "Revenus du foyer", "Household income", "household"],
   ["autres_revenus", "Autres revenus", "Other income"],
   ["epargne", "Épargne", "Savings"],
-  // Personal budgets only: money sent to the shared household account (not spending, ignored in the Total).
-  ["vers_foyer", "Virement vers le foyer", "Transfer to household", "personal"],
+  // Money moving between the household's own accounts (personal ↔ joint, personal ↔ personal):
+  // never spending nor income, ignored in the Total.
+  ["virement_interne", "Virement interne", "Internal transfer"],
 ];
 // Name to show for a category: a standard category that still has its default
 // name (French or English) is shown in the current language; a renamed one as typed.
 function categoryLabel(c) {
-  const std = STANDARD_CATEGORIES.find(([id]) => id === c.id);
+  const std = STANDARD_CATEGORIES.find(([id]) => id === c.id) || STANDARD_CATEGORIES.find(([, fr, en]) => c.name === fr || c.name === en);
   if (std && (c.name === std[1] || c.name === std[2])) return LANG === "en" ? std[2] : std[1];
   return c.name;
 }
 function emptyBudgetDoc(lang, personal) {
-  const categories = STANDARD_CATEGORIES.filter((c) => personal || c[3] !== "personal").map(([id, fr, en]) => ({ id, name: lang === "en" ? en : fr, budget: 0 }));
+  const categories = STANDARD_CATEGORIES.filter((c) => !c[3] || c[3] === (personal ? "personal" : "household")).map(([id, fr, en]) => ({ id, name: lang === "en" ? en : fr, budget: 0 }));
   // Starts with the current month (labels are stored in French; they're translated for display).
   const now = new Date();
   const key = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
@@ -1204,10 +1208,10 @@ function emptyBudgetDoc(lang, personal) {
 function specialCategories(cats) {
   const find = (id, words) => cats.find((c) => c.id === id) || cats.find((c) => words.some((w) => normText(c.name).includes(w)));
   return {
-    salaire: find("salaire", ["salaire", "salary"]),
+    salaire: find("salaire", ["salaire", "salary"]) || find("revenus_foyer", ["revenus du foyer", "household income"]),
     epargne: find("epargne", ["epargne", "savings"]),
     otherIncome: find("autres_revenus", ["autres revenus", "other income"]),
-    transfer: find("vers_foyer", ["virement vers le foyer", "transfer to household"]),
+    transfer: find("virement_interne", ["virement interne", "internal transfer"]) || find("vers_foyer", ["virement vers le foyer", "transfer to household"]),
   };
 }
 // Last known balance of a savings account (typed by hand, read from the bank, or summed).
@@ -1453,7 +1457,7 @@ function HouseholdSetup({ session, onReady }) {
 }
 
 // ---------- Main budget tracker (shared, per household) ----------
-function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spaceBar }) {
+function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spaceBar, nameWords }) {
   // space: { kind: "household" } or { kind: "member", userId, name } — whose budget this is.
   const budgetQuery = () => space.kind === "member"
     ? sb.from("member_budget").select("data").eq("household_id", household.id).eq("user_id", space.userId)
@@ -1539,6 +1543,11 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
       // Every household has an "Autres revenus" (other income) category: added once if missing.
       const hasOtherIncome = (doc.categories || []).some((c) => c.id === "autres_revenus" || ["autres revenus", "other income"].some((w) => normText(c.name).includes(w)));
       if (!hasOtherIncome) doc.categories = [...(doc.categories || []), { id: "autres_revenus", name: LANG === "en" ? "Other income" : "Autres revenus", budget: 0 }];
+      // …and a "Virement interne" (internal transfer) category; the former "Virement vers le foyer" becomes it.
+      doc.categories = doc.categories.map((c) => ["virement vers le foyer", "transfer to household"].includes(normText(c.name)) ? { ...c, name: LANG === "en" ? "Internal transfer" : "Virement interne" } : c);
+      if (!specialCategories(doc.categories).transfer) doc.categories = [...doc.categories, { id: "virement_interne", name: LANG === "en" ? "Internal transfer" : "Virement interne", budget: 0 }];
+      // On the joint account, the income category is "Revenus du foyer" (salaries belong to personal budgets).
+      if (space.kind === "household") doc.categories = doc.categories.map((c) => ["salaire", "salary"].includes(normText(c.name)) ? { ...c, name: LANG === "en" ? "Household income" : "Revenus du foyer" } : c);
       setCategories(doc.categories); setMonths(sortMonthsChronologically(doc.months)); setIncome(doc.income);
       setSavings(doc.savings); setRecurringFees(doc.recurringFees || []); setCategoryRules(doc.categoryRules || {}); setSavingsAccounts(doc.savingsAccounts || {});
       const fromUrl = initialPlace.view === "depenses" && doc.months.find((m) => m.id === initialPlace.key);
@@ -1985,6 +1994,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
     { bank: ["credit immobilier", "pret immobilier", "emprunt"], ids: ["emprunt"], names: ["emprunt", "credit"] },
     { bank: ["salaires", "salaire", "revenus du travail"], ids: ["salaire"], names: ["salaire", "salary"] },
     { bank: ["epargne", "placement", "livret"], ids: ["epargne"], names: ["epargne", "savings"] },
+    { bank: ["mouvements internes", "virements internes", "umbuchung"], ids: ["virement_interne", "vers_foyer"], names: ["virement interne", "internal transfer"] },
     { bank: ["retrait", "especes"], ids: [], names: ["retrait", "espece", "liquide", "cash"] },
   ];
   const bankCategoryId = (bankCat) => {
@@ -2010,6 +2020,14 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
   const findDuplicateInMonth = (m, candidate, excludeId) =>
     (transactions[m] || []).find((tx) => tx.id !== excludeId && isDuplicateOf(tx, candidate));
 
+  // A transfer between the household's own accounts: a "virement" whose label names a
+  // member, or says it comes from / goes to another of your accounts. Marked "?" to check.
+  const isInternalTransfer = (label) => {
+    if (operationType(label) !== "transfer") return false;
+    const l = normText(label);
+    if (/\bvirement (depuis|vers|interne|entre)\b|\b(compte a compte|own account|eigene[sn]? konto|umbuchung)\b/.test(l)) return true;
+    return (nameWords || []).some((w) => w.length >= 3 && hasWord(l, w));
+  };
   const parseCsv = (text, targetMonth) => {
     const table = readBankCsv(text); // any bank's export: see readBankCsv()
     if (table.error) return table;
@@ -2064,6 +2082,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
       const sources = isDup ? [] : [
         ["rule", () => categoryExists(categoryRules[key]) && categoryRules[key]],
         ["fee", () => fee && fee.categoryId],
+        ["internal", () => transferCat && isInternalTransfer(label) && transferCat.id],
         ["history", () => history[key]],
         ["bank", () => bankCategoryId(bankCat) || bankCategoryId(candidate.bankParent)],
         ["withdrawal", () => operationType(label) === "withdrawal" && withdrawalCategoryId()],
@@ -2343,7 +2362,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
       setImportSummary(
         t("{n} transaction(s) importée(s)", { n: newRows.length }) + (perMonth ? (LANG === "en" ? ": " : " : ") + perMonth : t(" pour {m}", { m: targetLabel })) +
         (dupCount > 0 ? t(", {n} déjà importée(s) ignorée(s)", { n: dupCount }) : "") +
-        (newRows.some((r) => r.categorySource === "keyword") ? t(", {n} catégorie(s) devinée(s) marquée(s) « ? » à vérifier", { n: newRows.filter((r) => r.categorySource === "keyword").length }) : "") +
+        (newRows.some((r) => r.categorySource === "keyword" || r.categorySource === "internal") ? t(", {n} catégorie(s) devinée(s) marquée(s) « ? » à vérifier", { n: newRows.filter((r) => r.categorySource === "keyword" || r.categorySource === "internal").length }) : "") +
         t(". Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».")
       );
       setShowTransactions(true);
@@ -2816,13 +2835,13 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <span className="hero-kicker">{t("Reste à la fin du mois")}</span>
           <span className={"hero-big" + (curRestant < 0 ? " neg" : "")}>{fmt(Math.round(curRestant))}</span>
-          <span className="hero-label">{t(transferCat ? "revenus − dépenses − épargne − versé au foyer" : "revenus − dépenses − épargne")}</span>
+          <span className="hero-label">{t(transferCat && monthTransferred(selectedMonth) !== 0 ? "revenus − dépenses − épargne ± virements internes" : "revenus − dépenses − épargne")}</span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div><div className="hero-label">{t("Revenus")}</div><div className="hero-num">{fmt(Math.round(curIncomeTotal))}</div></div>
           <div><div className="hero-label">{t("Épargné")}</div><div className="hero-num">{fmt(Math.round(curSavings))}</div></div>
           {transferCat && monthTransferred(selectedMonth) !== 0 && (
-            <div><div className="hero-label">{t("Versé au foyer")}</div><div className="hero-num">{fmt(Math.round(monthTransferred(selectedMonth)))}</div></div>
+            <div><div className="hero-label">{t("Virements internes")}</div><div className="hero-num">{monthTransferred(selectedMonth) > 0 ? "−" : "+"}{fmt(Math.abs(Math.round(monthTransferred(selectedMonth))))}</div></div>
           )}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -2944,7 +2963,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
       </div>
       <div className="import-hint" style={{ padding: "4px 8px 10px" }}>
         {t("Le montant « Réel » est calculé automatiquement à partir des transactions.")}
-        {(salaireCat || epargneCat || otherIncomeCat) && t(" Salaire, Autres revenus et Épargne n'apparaissent pas ici : voir « Revenus » et « Épargné ».")}
+        {(salaireCat || epargneCat || otherIncomeCat) && t(" Revenus, Épargne et Virements internes n'apparaissent pas ici.")}
       </div>
       </React.Fragment></div>) : (
           <div className="cat-list">
@@ -3112,7 +3131,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
               };
               const catOf = (tx) => categories.find((c) => c.id === tx.categoryId);
               const catName = (tx) => catOf(tx)?.name || "";
-              const toCheck = (tx) => !!catOf(tx) && tx.categorySource === "keyword";
+              const toCheck = (tx) => !!catOf(tx) && (tx.categorySource === "keyword" || tx.categorySource === "internal");
               const matchesCategory = (tx) =>
                 !txCatFilter ? true :
                 txCatFilter === "__none__" ? !catOf(tx) :
@@ -3407,7 +3426,9 @@ function Workspace({ household, session, onLogout, onRename, lang, onLang }) {
   );
   if (current === "total") return <TotalView household={household} members={members} spaceBar={spaceBar} onLogout={onLogout} lang={lang} onLang={onLang} />;
   const spaceObj = member ? { kind: "member", userId: member.userId, name: member.name } : { kind: "household" };
-  return <BudgetTracker key={current} household={household} onLogout={onLogout} onRename={onRename} lang={lang} onLang={onLang} space={spaceObj} spaceBar={spaceBar} />;
+  // Names that identify the household's own accounts in bank labels (first names, and my e-mail's words).
+  const nameWords = [...new Set([...members.map((m) => normText(m.name)), ...normText(String(session.user.email || "").split("@")[0]).split(" ")])].filter((w) => w.length >= 3 && w !== "moi");
+  return <BudgetTracker key={current} household={household} onLogout={onLogout} onRename={onRename} lang={lang} onLang={onLang} space={spaceObj} spaceBar={spaceBar} nameWords={nameWords} />;
 }
 
 // ---------- Total: household + every member's personal budget ----------
@@ -3501,7 +3522,7 @@ function TotalView({ household, members, spaceBar, onLogout, lang, onLang }) {
               </tbody>
             </table>
           </div>
-          <div className="import-hint" style={{ padding: "0 16px 12px" }}>{t("Les virements de « Virement vers le foyer » ne sont pas comptés comme dépenses, pour ne pas compter deux fois le même argent.")}</div>
+          <div className="import-hint" style={{ padding: "0 16px 12px" }}>{t("Les « Virements internes » (entre vos comptes) ne sont pas comptés comme dépenses, pour ne pas compter deux fois le même argent.")}</div>
         </div>
       </React.Fragment>)}
     </div>
