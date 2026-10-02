@@ -266,6 +266,45 @@
   .tx-more { width: 100%; margin-top: 14px; padding: 12px; border-radius: 10px; border: 1px solid var(--rule); background: transparent; font-size: 14px; font-weight: 600; cursor: pointer; color: var(--ink); }
   .tx-panel .add-line { margin-top: 8px; padding-left: 0; }
 
+  /* Why over budget */
+  .why-panel .panel-title { font-size: 20px; }
+  .why-sub { padding: 12px 24px 0; font-size: 14px; color: var(--ink-soft); }
+  .why-list { padding: 4px 24px 12px; }
+  .why-item { padding: 14px 0; border-bottom: 1px solid var(--rule); }
+  .why-item:last-child { border-bottom: none; }
+  .why-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .why-name { background: none; border: none; padding: 0; font: inherit; font-size: 16px; font-weight: 700; color: var(--ink); cursor: pointer; text-align: left; }
+  .why-name:hover { text-decoration: underline; }
+  .why-excess { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--red); white-space: nowrap; }
+  .why-share { height: 6px; border-radius: 99px; background: var(--track); margin: 8px 0 6px; overflow: hidden; }
+  .why-share > div { height: 100%; border-radius: 99px; background: var(--red); }
+  .why-detail { font-size: 13px; color: var(--ink-soft); }
+  .why-txs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .why-tx { display: inline-flex; gap: 8px; align-items: baseline; max-width: 100%; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--rule); background: var(--paper-alt); color: var(--ink); font-size: 13px; cursor: pointer; }
+  .why-tx:hover { border-color: var(--ink-soft); }
+  .why-tx-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .why-tx-amt { font-family: var(--font-mono); font-weight: 600; white-space: nowrap; }
+  .why-more { background: none; border: none; color: var(--gold); font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 4px; }
+
+  /* Monthly chart: months over budget + suggestions */
+  .chart-hint { font-size: 12px; color: var(--ink-soft); margin: 6px 0 0; }
+  .om-list, .sugg-list { margin-top: 18px; border-top: 1px solid var(--rule); padding-top: 12px; }
+  .om-title { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 6px; }
+  .om-row { display: grid; grid-template-columns: 140px 90px minmax(0, 1fr); gap: 6px 12px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+  .om-row:last-child { border-bottom: none; }
+  .om-month { background: none; border: none; padding: 0; font: inherit; font-weight: 700; color: var(--ink); cursor: pointer; text-align: left; }
+  .om-month:hover { text-decoration: underline; }
+  .om-over { font-family: var(--font-mono); font-weight: 700; color: var(--red); white-space: nowrap; }
+  .om-causes { display: flex; flex-wrap: wrap; gap: 6px; }
+  .om-cause { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: #F2DDD7; color: #7A2E1F; white-space: nowrap; }
+  .om-cause.more { background: var(--track); color: var(--ink-soft); }
+  .sugg { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 10px 12px; margin-bottom: 8px; border-radius: 12px; background: var(--paper-alt); border-left: 4px solid var(--rule); font-size: 14px; }
+  .sugg.raise { border-left-color: var(--red); } .sugg.nobudget { border-left-color: var(--saffron); }
+  .sugg.oneoff { border-left-color: var(--blue); } .sugg.lower { border-left-color: var(--green); }
+  .sugg-text { flex: 1 1 320px; min-width: 0; }
+  .sugg-btn { padding: 7px 12px; border-radius: 8px; border: 1px solid var(--rule); background: var(--paper); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; color: var(--ink); }
+  .sugg-btn:hover { border-color: var(--ink-soft); }
+
   /* Phones: sections move to a bar at the bottom, summaries stack */
   @media (max-width: 720px) {
     .appbar { margin-bottom: 18px; backdrop-filter: none; background: var(--paper); }
@@ -285,6 +324,8 @@
     .panel-title { font-size: 19px; padding: 14px 16px; }
     .row, .cat-list, .add-line, .totals-row { padding-left: 16px; padding-right: 16px; }
     .tx-body { padding: 14px 16px 8px; }
+    .om-row { grid-template-columns: minmax(0, 1fr) auto; } .om-causes { grid-column: 1 / -1; }
+    .why-sub { padding: 12px 16px 0; } .why-list { padding: 4px 16px 12px; }
     .tx-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name amt" "chip chip"; gap: 4px 10px; }
     .tx-name { grid-area: name; } .tx-amt { grid-area: amt; min-width: 0; } .tx-chip { grid-area: chip; justify-self: start; max-width: 100%; }
     .tx-edit { grid-template-columns: minmax(0, 1fr) 110px; }
@@ -619,7 +660,7 @@ function SavingsBalanceChart({ data }) {
 
 // Spending per month (savings and income excluded), selected month highlighted,
 // with the total monthly budget as a dashed reference line.
-function MonthlySpendChart({ data, budget, selectedName }) {
+function MonthlySpendChart({ data, budget, selectedName, onPick }) {
   const canvasRef = useRef(null); const chartRef = useRef(null);
   useEffect(() => {
     if (chartRef.current) chartRef.current.destroy();
@@ -634,8 +675,18 @@ function MonthlySpendChart({ data, budget, selectedName }) {
       options: { responsive: true,
         plugins: {
           legend: { labels: { font: { family: "Instrument Sans", size: 12 } } },
-          tooltip: { callbacks: { label: (c) => `${c.dataset.label} : ${fmt(c.parsed.y)}` } },
+          tooltip: { callbacks: {
+            label: (c) => `${c.dataset.label} : ${fmt(c.parsed.y)}`,
+            afterBody: (items) => {
+              const d = data[items[0].dataIndex];
+              if (!d || !d.causes || !d.causes.length) return "";
+              return ["", `Budget dépassé de ${fmt(Math.round(d.overrun))} :`].concat(d.causes.slice(0, 4).map((c) => `• ${c.name} +${fmt(Math.round(c.excess))}`));
+            },
+          } },
         },
+        aspectRatio: window.innerWidth < 720 ? 1.1 : 3,
+        onClick: (e, els) => { if (els.length && onPick) onPick(data[els[0].index].id); },
+        onHover: (e, els) => { e.native.target.style.cursor = els.length ? "pointer" : "default"; },
         scales: { x: { ticks: { font: { family: "IBM Plex Mono", size: 10 } } },
           y: { beginAtZero: true, ticks: { font: { family: "IBM Plex Mono", size: 10 }, callback: (v) => fmt(v) } } } },
     });
@@ -1827,10 +1878,89 @@ function BudgetTracker({ household, onLogout, onRename }) {
     return pts.map((r, i) => `${(i / (pts.length - 1)) * 500},${(88 - ((r.balance - lo) / span) * 80).toFixed(1)}`).join(" ");
   })();
   const curAccount = savingsList[accIdx] || null;
-  const spendData = sortedMonths.map((m) => ({ name: m.label, Dépenses: Math.round(monthActualTotal(m.id) * 100) / 100 }));
+  // Per month: spending, overrun, and which categories went over (biggest first).
+  const monthCauses = (mId) => {
+    const causes = [];
+    expenseCategories.forEach((c) => {
+      const spent = categoryTotal(mId, c.id), budget = Number(c.budget) || 0;
+      if (spent - budget >= 0.5) causes.push({ id: c.id, name: c.name, excess: spent - budget, noBudget: budget <= 0 });
+    });
+    const unc = uncategorizedSpent(mId);
+    if (unc >= 0.5) causes.push({ id: "__none__", name: "Non catégorisé", excess: unc, noBudget: true });
+    return causes.sort((a, b) => b.excess - a.excess);
+  };
+  const spendData = sortedMonths.map((m) => {
+    const total = monthActualTotal(m.id), overrun = total - monthBudgetTotal;
+    return { id: m.id, name: m.label, Dépenses: Math.round(total * 100) / 100, overrun, causes: monthBudgetTotal > 0 && overrun >= 0.5 ? monthCauses(m.id) : [] };
+  });
+  const overMonths = spendData.filter((d) => d.causes.length > 0);
+  // Suggestions from patterns over the finished months that have spending.
+  const budgetSuggestions = (() => {
+    const now = new Date();
+    const nowKey = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    const withData = sortedMonths.filter((m) => monthActualTotal(m.id) > 0);
+    const past = withData.filter((m) => monthSortKey(m) && monthSortKey(m) < nowKey);
+    const ms = past.length >= 2 ? past : withData;
+    if (ms.length < 2) return [];
+    const nice = (v) => v >= 50 ? Math.ceil(v / 10) * 10 : Math.ceil(v / 5) * 5;
+    const out = [];
+    expenseCategories.forEach((c) => {
+      const budget = Number(c.budget) || 0;
+      const spends = ms.map((m) => categoryTotal(m.id, c.id));
+      const avg = spends.reduce((a, b) => a + b, 0) / ms.length;
+      const overIdx = spends.map((v, i) => (v - budget >= 1 ? i : -1)).filter((i) => i >= 0);
+      const usedIn = spends.filter((v) => v >= 1).length;
+      if (budget <= 0) {
+        if (usedIn >= Math.max(2, Math.ceil(ms.length / 2)) && avg >= 5)
+          out.push({ key: c.id, impact: avg, kind: "nobudget", catId: c.id, value: nice(avg),
+            text: <React.Fragment><strong>{c.name}</strong> n'a pas de budget mais revient {usedIn} mois sur {ms.length} (≈ {fmt(Math.round(avg))}/mois en moyenne).</React.Fragment> });
+        return;
+      }
+      if (overIdx.length >= 2 && overIdx.length >= ms.length / 2) {
+        const avgOver = spends.reduce((a, b) => a + b, 0) / ms.length;
+        out.push({ key: c.id, impact: (avgOver - budget) * overIdx.length, kind: "raise", catId: c.id, value: nice(avgOver),
+          text: <React.Fragment><strong>{c.name}</strong> dépasse son budget {overIdx.length} mois sur {ms.length} : {fmt(Math.round(avgOver))} en moyenne pour {fmt(Math.round(budget))} prévus. Soit le budget est trop bas, soit c'est le poste à surveiller.</React.Fragment> });
+      } else if (overIdx.length === 1) {
+        const m = ms[overIdx[0]];
+        const big = monthTransactions(m.id).filter((t) => t.categoryId === c.id && Number(t.amount) > 0).sort((a, b) => b.amount - a.amount)[0];
+        const excess = spends[overIdx[0]] - budget;
+        if (big && big.amount >= excess * 0.5 && excess >= 20)
+          out.push({ key: c.id, impact: excess * 0.5, kind: "oneoff",
+            text: <React.Fragment><strong>{c.name}</strong> : dépassement ponctuel en {m.label.toLowerCase()} (+{fmt(Math.round(excess))}), surtout « {prettyTxLabel(big.label)} » ({fmtCents(big.amount)}). Si c'est exceptionnel, inutile de changer le budget.</React.Fragment> });
+      } else if (ms.length >= 3 && budget >= 20 && usedIn >= Math.ceil(ms.length / 2) && spends.every((v) => v <= budget * 0.5)) {
+        // Only for categories actually used: a category with no spending at all may be yearly (gifts, insurance…).
+        out.push({ key: c.id, impact: (budget - avg) * 0.6, kind: "lower", catId: c.id, value: nice(Math.max(avg, 5)),
+          text: <React.Fragment><strong>{c.name}</strong> est toujours bien en dessous : {fmt(Math.round(avg))} en moyenne pour {fmt(Math.round(budget))} prévus. Ce budget pourrait financer un poste qui dépasse.</React.Fragment> });
+      }
+    });
+    return out.sort((a, b) => b.impact - a.impact).slice(0, 6);
+  })();
   const curIncomeLines = income[selectedMonth] || [];
   const curIncomeTotal = monthIncome(selectedMonth);
   const curActualTotal = monthActualTotal(selectedMonth);
+  // "Why over budget": categories above budget, spending with no budget and uncategorized
+  // spending, each with its biggest transactions. Excess minus what's left elsewhere = the overrun.
+  const overBudget = monthBudgetTotal > 0 && curActualTotal - monthBudgetTotal >= 0.5;
+  const overReasons = (() => {
+    const txs = monthTransactions(selectedMonth);
+    const biggest = (pred) => txs.filter((t) => pred(t) && Number(t.amount) > 0).sort((a, b) => b.amount - a.amount);
+    const rows = [];
+    catRows.forEach((c) => {
+      if (c.state === "over") rows.push({ key: c.id, filter: c.id, name: c.name, excess: c.spent - c.budget, detail: `${fmt(Math.round(c.spent))} dépensés pour ${fmt(Math.round(c.budget))} prévus`, txs: biggest((t) => t.categoryId === c.id) });
+      else if (overBudget && c.state === "none" && c.spent >= 0.5) rows.push({ key: c.id, filter: c.id, name: c.name, excess: c.spent, detail: "pas de budget prévu pour cette catégorie", txs: biggest((t) => t.categoryId === c.id) });
+    });
+    const unc = uncategorizedSpent(selectedMonth);
+    if (overBudget && unc >= 0.5) rows.push({ key: "__none__", filter: "__none__", name: "Non catégorisé", excess: unc, detail: "à classer dans « Transactions »", txs: biggest((t) => !categories.some((c) => c.id === t.categoryId)) });
+    rows.sort((a, b) => b.excess - a.excess);
+    const excessTotal = rows.reduce((s, r) => s + r.excess, 0);
+    const leftover = catRows.filter((c) => c.budget > 0 && c.state !== "over").reduce((s, c) => s + Math.max(0, c.budget - c.spent), 0);
+    return { rows, excessTotal, leftover };
+  })();
+  // Jump from a reason to the transaction list, filtered on that category (and the clicked transaction open).
+  const showInTransactions = (filter, txId) => {
+    setTxQuery(""); setTxCatFilter(filter); setShowTransactions(true); setTxShowAll(true); setOpenTx(txId || null);
+    setTimeout(() => { const el = document.getElementById("tx-panel"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 50);
+  };
   const curManualSavings = Number(savings[selectedMonth]) || 0;
   const curSavingsFromCategory = epargneFromTransactions(selectedMonth);
   const curSavings = monthSavings(selectedMonth);
@@ -2117,6 +2247,44 @@ function BudgetTracker({ household, onLogout, onRename }) {
         </div>
       </section>
 
+      {overReasons.rows.length > 0 && (
+        <div className="panel why-panel">
+          <div className="panel-title">
+            {overBudget
+              ? <span>Pourquoi le budget est dépassé de <span style={{ color: "var(--red)" }}>{fmt(Math.round(curActualTotal - monthBudgetTotal))}</span></span>
+              : <span>Au-dessus du budget</span>}
+          </div>
+          <div className="why-sub">
+            {overBudget
+              ? <React.Fragment>Dépassements <strong style={{ color: "var(--red)" }}>+{fmt(Math.round(overReasons.excessTotal))}</strong>{overReasons.leftover >= 0.5 && <React.Fragment>, en partie compensés par <strong style={{ color: "var(--green)" }}>{fmt(Math.round(overReasons.leftover))}</strong> non dépensés dans les autres catégories</React.Fragment>}.</React.Fragment>
+              : <React.Fragment>Le mois reste dans le budget : les autres catégories compensent ({fmt(Math.round(overReasons.leftover))} non dépensés).</React.Fragment>}
+          </div>
+          <div className="why-list">
+            {overReasons.rows.map((r) => (
+              <div key={r.key} className="why-item">
+                <div className="why-head">
+                  <button type="button" className="why-name" onClick={() => showInTransactions(r.filter)}>{r.name}</button>
+                  <span className="why-excess">+{fmt(Math.round(r.excess))}</span>
+                </div>
+                <div className="why-share"><div style={{ width: Math.max(2, (r.excess / overReasons.excessTotal) * 100) + "%" }}></div></div>
+                <div className="why-detail">{r.detail}</div>
+                <div className="why-txs">
+                  {r.txs.slice(0, 3).map((t) => (
+                    <button type="button" key={t.id} className="why-tx" title={t.label} onClick={() => showInTransactions(r.filter, t.id)}>
+                      <span className="why-tx-name">{prettyTxLabel(t.label)}</span>
+                      <span className="why-tx-amt">{fmtCents(t.amount)}</span>
+                    </button>
+                  ))}
+                  {r.txs.length > 3 && (
+                    <button type="button" className="why-more" onClick={() => showInTransactions(r.filter)}>+ {r.txs.length - 3} autre{r.txs.length - 3 > 1 ? "s" : ""} →</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="panel">
         <div className="panel-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span>Par catégorie</span>
@@ -2323,7 +2491,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
         )}
       </div>
 
-      <div className="panel tx-panel">
+      <div className="panel tx-panel" id="tx-panel">
         <div className="panel-title tx-head" onClick={() => setShowTransactions((v) => !v)}>
           <span>Transactions</span>
           <span className="tx-head-side">{monthTransactions(selectedMonth).length} ce mois · <span className="tx-toggle">{showTransactions ? "Masquer ▲" : "Voir ▼"}</span></span>
@@ -2554,7 +2722,45 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
       <div className="charts">
         <div className="chart-box"><p className="chart-title">Budget vs. réel par catégorie</p><BarChartCanvas data={barData} /></div>
-        <div className="chart-box"><p className="chart-title">Dépenses par mois (hors épargne)</p><MonthlySpendChart data={spendData} budget={monthBudgetTotal} selectedName={curMonthLabel} /></div>
+        <div className="chart-box">
+          <p className="chart-title">Dépenses par mois (hors épargne)</p>
+          <MonthlySpendChart data={spendData} budget={monthBudgetTotal} selectedName={curMonthLabel}
+            onPick={(id) => { setSelectedMonth(id); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+          <p className="chart-hint">Cliquez sur un mois pour l'ouvrir.</p>
+          {overMonths.length > 0 && (
+            <div className="om-list">
+              <div className="om-title">Mois au-dessus du budget</div>
+              {overMonths.map((d) => (
+                <div key={d.id} className="om-row">
+                  <button type="button" className="om-month" onClick={() => { setSelectedMonth(d.id); window.scrollTo({ top: 0, behavior: "smooth" }); }}>{d.name}</button>
+                  <span className="om-over">+{fmt(Math.round(d.overrun))}</span>
+                  <span className="om-causes">
+                    {d.causes.slice(0, 3).map((c) => (
+                      <span key={c.id} className="om-cause">{c.name} <strong>+{fmt(Math.round(c.excess))}</strong>{c.noBudget ? " (sans budget)" : ""}</span>
+                    ))}
+                    {d.causes.length > 3 && <span className="om-cause more">+{d.causes.length - 3}</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {budgetSuggestions.length > 0 && (
+            <div className="sugg-list">
+              <div className="om-title">Suggestions</div>
+              {budgetSuggestions.map((sg) => (
+                <div key={sg.key + sg.kind} className={"sugg " + sg.kind}>
+                  <span className="sugg-text">{sg.text}</span>
+                  {sg.catId && sg.value !== undefined && (
+                    <button type="button" className="sugg-btn" onClick={() => updateCategoryBudget(sg.catId, sg.value)}>
+                      {sg.kind === "nobudget" ? `Ajouter un budget de ${fmt(sg.value)}` : `Mettre le budget à ${fmt(sg.value)}`}
+                    </button>
+                  )}
+                </div>
+              ))}
+              <p className="chart-hint">Basé sur les mois terminés. Chaque bouton modifie le budget — « Annuler » en haut permet de revenir en arrière.</p>
+            </div>
+          )}
+        </div>
       </div>
       </React.Fragment>)}
     </div>
