@@ -925,38 +925,37 @@ function sortMonthsChronologically(list) {
     .map((x) => x.m);
 }
 
-const seedCategories = [
-  { id: "loyer", name: "Loyer + parking", budget: 1675 },
-  { id: "emprunt", name: "Emprunt maison", budget: 0 },
-  { id: "assurance_emprunt", name: "Assurance emprunteur", budget: 0 },
-  { id: "taxe_fonciere", name: "Taxe foncière", budget: 0 },
-  { id: "taxe_ordures", name: "Taxe enlèvement ordures", budget: 0 },
-  { id: "electricite", name: "Électricité", budget: 50 },
-  { id: "internet", name: "Internet", budget: 26 },
-  { id: "eau", name: "Eau", budget: 0 },
-  { id: "assurance_habitation", name: "Assurance habitation", budget: 32 },
-  { id: "travaux", name: "Travaux / équipement maison", budget: 0 },
-  { id: "voiture_assurance", name: "Voiture assurance", budget: 93 },
-  { id: "voiture_entretien", name: "Voiture entretien", budget: 17 },
-  { id: "essence", name: "Essence", budget: 100 },
-  { id: "pets", name: "Pets", budget: 25 },
-  { id: "sante", name: "Santé – divers", budget: 20 },
-  { id: "alimentation", name: "Alimentation + courses maison", budget: 500 },
-  { id: "autres", name: "Autres", budget: 0 },
-  { id: "netflix", name: "Netflix ou Prime", budget: 8 },
-  { id: "resto", name: "Resto", budget: 200 },
-  { id: "weekends", name: "Weekends", budget: 200 },
-  { id: "cadeaux", name: "Cadeaux", budget: 100 },
-  { id: "salaire", name: "Salaire", budget: 0 },
-  { id: "epargne", name: "Épargne", budget: 0 },
+// Standard categories for a NEW household, in the language chosen when it's created,
+// with no budget amounts (each household sets its own). Ids match the
+// auto-categorization rules (e.g. "alimentation" for groceries).
+const STANDARD_CATEGORIES = [
+  ["loyer", "Logement (loyer / crédit)", "Housing (rent / mortgage)"],
+  ["electricite", "Énergie & eau", "Utilities"],
+  ["internet", "Internet & téléphone", "Internet & phone"],
+  ["alimentation", "Courses", "Groceries"],
+  ["resto", "Restaurants & cafés", "Restaurants & cafés"],
+  ["transport", "Transport", "Transport"],
+  ["sante", "Santé", "Health"],
+  ["assurances", "Assurances", "Insurance"],
+  ["netflix", "Abonnements", "Subscriptions"],
+  ["shopping", "Shopping & vêtements", "Shopping & clothes"],
+  ["loisirs", "Loisirs & sorties", "Leisure"],
+  ["weekends", "Voyages", "Travel"],
+  ["cadeaux", "Cadeaux", "Gifts"],
+  ["travaux", "Maison & équipement", "Home & equipment"],
+  ["taxe_fonciere", "Impôts & taxes", "Taxes"],
+  ["divers", "Divers", "Other"],
+  ["salaire", "Salaire", "Salary"],
+  ["epargne", "Épargne", "Savings"],
 ];
-const seedMonths = [{ id: uid("month"), label: "Ce mois-ci" }];
-const seedIncome = { [seedMonths[0].id]: [{ id: uid("inc"), label: "Revenu 1", amount: 0 }] };
-const seedSavings = { [seedMonths[0].id]: 0 };
-const seedActuals = { [seedMonths[0].id]: {} };
-
-function emptyBudgetDoc() {
-  return { categories: seedCategories, months: seedMonths, income: seedIncome, savings: seedSavings, actuals: seedActuals, transactions: {}, recurringFees: [] };
+function emptyBudgetDoc(lang) {
+  const categories = STANDARD_CATEGORIES.map(([id, fr, en]) => ({ id, name: lang === "en" ? en : fr, budget: 0 }));
+  // Starts with the current month (labels are stored in French; they're translated for display).
+  const now = new Date();
+  const key = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+  const n = MONTH_NAMES_FR[now.getMonth()];
+  const month = { id: uid("month"), label: n.charAt(0).toUpperCase() + n.slice(1) + " " + now.getFullYear(), date: key + "-01" };
+  return { categories, months: [month], income: { [month.id]: [] }, savings: { [month.id]: 0 }, actuals: { [month.id]: {} }, transactions: {}, recurringFees: [] };
 }
 
 // ---------- Charts ----------
@@ -1121,7 +1120,7 @@ function HouseholdSetup({ session, onReady }) {
     if (e1) { setError(e1.message); setBusy(false); return; }
     const { error: e2 } = await sb.from("household_members").insert({ household_id: hh.id, user_id: session.user.id });
     if (e2) { setError(e2.message); setBusy(false); return; }
-    const { error: e3 } = await sb.from("household_budget").insert({ household_id: hh.id, data: emptyBudgetDoc() });
+    const { error: e3 } = await sb.from("household_budget").insert({ household_id: hh.id, data: emptyBudgetDoc(LANG) });
     if (e3) { setError(e3.message); setBusy(false); return; }
     setBusy(false); onReady(hh);
   };
@@ -1202,7 +1201,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
   useEffect(() => {
     (async () => {
       const { data, error } = await sb.from("household_budget").select("data").eq("household_id", household.id).maybeSingle();
-      const doc = (data && data.data) || emptyBudgetDoc();
+      const doc = (data && data.data) || emptyBudgetDoc(LANG);
       // Drop data left behind by month tabs that no longer exist (tabs deleted
       // before deletion also removed their data), so it can't resurface or
       // interfere with imports. It's removed from storage on the next save.
@@ -1370,8 +1369,8 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
   // Salaire/Épargne are income & savings categories, not expense categories —
   // detected by name so this works whether they came from the default
   // template or were added manually by a household member.
-  const salaireCat = categories.find((c) => c.name.toLowerCase().includes("salaire"));
-  const epargneCat = categories.find((c) => { const n = c.name.toLowerCase(); return n.includes("épargne") || n.includes("epargne"); });
+  const salaireCat = categories.find((c) => c.id === "salaire") || categories.find((c) => ["salaire", "salary"].some((w) => normText(c.name).includes(w)));
+  const epargneCat = categories.find((c) => c.id === "epargne") || categories.find((c) => ["epargne", "savings"].some((w) => normText(c.name).includes(w)));
   const expenseCategories = categories.filter((c) => c.id !== salaireCat?.id && c.id !== epargneCat?.id);
 
   // Salaire transactions are money received (negative app-amount) — flip sign for income.
@@ -1564,17 +1563,17 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
   const guessCategoryId = (label, amount) => {
     const l = normText(label);
     const rules = [
-      { ids: ["electricite"], names: ["electricite", "energie", "gaz"], words: ["edf", "engie", "totalenergies electricite", "totalenergies elec", "ekwateur", "enercoop"] },
-      { ids: ["essence"], names: ["essence", "carburant"], words: ["total", "totalenergies", "esso", "shell", "bp", "avia", "station", "station service", "carburant"] },
-      { ids: ["voiture_entretien"], names: ["entretien", "garage"], words: ["car wash", "garage", "vidange", "pneu", "pneus", "norauto", "feu vert", "midas", "speedy"] },
+      { ids: ["electricite"], names: ["electricite", "energie", "gaz", "utilities"], words: ["edf", "engie", "totalenergies electricite", "totalenergies elec", "ekwateur", "enercoop"] },
+      { ids: ["essence", "transport"], names: ["essence", "carburant", "transport"], words: ["total", "totalenergies", "esso", "shell", "bp", "avia", "station", "station service", "carburant"] },
+      { ids: ["voiture_entretien", "transport"], names: ["entretien", "garage", "transport"], words: ["car wash", "garage", "vidange", "pneu", "pneus", "norauto", "feu vert", "midas", "speedy"] },
       { ids: ["internet"], names: ["internet", "telephone", "mobile", "box"], words: ["free", "free mobile", "freebox", "orange", "sfr", "bouygues", "bouygues telecom", "sosh", "red by sfr"] },
-      { ids: ["netflix"], names: ["netflix", "abonnement", "streaming"], words: ["netflix", "prime video", "amazon prime", "spotify", "disney", "disney plus", "deezer", "canal"] },
+      { ids: ["netflix"], names: ["netflix", "abonnement", "streaming", "subscription"], words: ["netflix", "prime video", "amazon prime", "spotify", "disney", "disney plus", "deezer", "canal"] },
       { ids: ["resto"], names: ["resto", "restaurant", "sorties"], words: ["restaurant", "resto", "brasserie", "uber eats", "deliveroo", "cafe", "mcdonald", "mcdonalds", "burger king", "kfc", "boulangerie"] },
-      { ids: ["weekends"], names: ["weekend", "vacances", "voyage"], words: ["hotel", "booking com", "bkg", "airbnb", "camping", "sncf", "ouigo"] },
-      { ids: ["alimentation"], names: ["alimentation", "courses", "supermarche"], words: ["carrefour", "leclerc", "monoprix", "auchan", "lidl", "franprix", "intermarche", "supermarche", "super u", "hyper u", "casino supermarche", "geant casino", "casino shop", "petit casino", "picard", "aldi", "boucherie", "amazon"] },
-      { ids: ["assurance_habitation"], names: ["assurance habitation"], words: ["assurance habitation", "maif", "macif", "matmut"] },
-      { ids: ["voiture_assurance"], names: ["assurance voiture", "voiture assurance", "assurance auto"], words: ["assurance auto", "assurance vehicule"] },
-      { ids: ["sante"], names: ["sante", "medical", "pharmacie"], words: ["pharmacie", "pharma", "medecin", "docteur", "dentiste", "optique", "opticien", "audition", "laboratoire", "kine"] },
+      { ids: ["weekends"], names: ["weekend", "vacances", "voyage", "travel"], words: ["hotel", "booking com", "bkg", "airbnb", "camping", "sncf", "ouigo"] },
+      { ids: ["alimentation"], names: ["alimentation", "courses", "supermarche", "groceries"], words: ["carrefour", "leclerc", "monoprix", "auchan", "lidl", "franprix", "intermarche", "supermarche", "super u", "hyper u", "casino supermarche", "geant casino", "casino shop", "petit casino", "picard", "aldi", "boucherie", "amazon"] },
+      { ids: ["assurance_habitation", "assurances"], names: ["assurance habitation", "assurance", "insurance"], words: ["assurance habitation", "maif", "macif", "matmut"] },
+      { ids: ["voiture_assurance", "assurances"], names: ["assurance voiture", "voiture assurance", "assurance auto", "assurance", "insurance"], words: ["assurance auto", "assurance vehicule"] },
+      { ids: ["sante"], names: ["sante", "medical", "pharmacie", "health"], words: ["pharmacie", "pharma", "medecin", "docteur", "dentiste", "optique", "opticien", "audition", "laboratoire", "kine"] },
       { ids: ["pets"], names: ["pets", "animaux", "chien", "chat", "veto"], words: ["veto", "veterinaire", "clinique veterinaire", "maxizoo", "animalerie", "wanimo", "zooplus", "truffaut"] },
     ];
     for (const rule of rules) {
@@ -1587,15 +1586,12 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
     // Match by category NAME (not id) for things like Salaire/Épargne, since
     // these are often user-added categories with a random internal id rather
     // than one of our known default ids above.
-    const findByName = (needle) => categories.find((c) => normText(c.name).includes(needle));
     // Salary is money received (negative in the app's sign convention) — never guess it for a spending.
-    if (amount < 0 && ["salaire", "paie", "paye"].some((w) => hasWord(l, w))) {
-      const cat = findByName("salaire");
-      if (cat) return cat.id;
+    if (amount < 0 && ["salaire", "paie", "paye", "salary"].some((w) => hasWord(l, w))) {
+      if (salaireCat) return salaireCat.id;
     }
     if (["epargne", "livret a", "livret", "ldd", "ldds", "lep", "pel"].some((w) => hasWord(l, w))) {
-      const cat = findByName("epargne");
-      if (cat) return cat.id;
+      if (epargneCat) return epargneCat.id;
     }
 
     return "";
@@ -1660,27 +1656,27 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
   // or by name. Anything not listed falls back to guessCategoryId() on the label.
   const BANK_CATEGORY_MAP = [
     { bank: ["alimentation", "supermarche", "hypermarche"], ids: ["alimentation"], names: ["alimentation", "courses"] },
-    { bank: ["carburant", "essence"], ids: ["essence"], names: ["essence", "carburant"] },
-    { bank: ["entretien reparation", "entretien vehicule", "pieces auto"], ids: ["voiture_entretien"], names: ["entretien"] },
-    { bank: ["peage", "parking", "stationnement"], ids: ["voiture_entretien"], names: ["peage", "parking", "transport", "voiture"] },
-    { bank: ["transports", "transport en commun", "train", "taxi vtc"], ids: [], names: ["transport"] },
-    { bank: ["hebergement", "hotel", "voyage", "vacances"], ids: ["weekends"], names: ["weekend", "vacances", "voyage"] },
-    { bank: ["loyers charges", "loyer"], ids: ["loyer"], names: ["loyer"] },
+    { bank: ["carburant", "essence"], ids: ["essence", "transport"], names: ["essence", "carburant", "transport"] },
+    { bank: ["entretien reparation", "entretien vehicule", "pieces auto"], ids: ["voiture_entretien", "transport"], names: ["entretien", "transport"] },
+    { bank: ["peage", "parking", "stationnement"], ids: ["voiture_entretien", "transport"], names: ["peage", "parking", "transport", "voiture"] },
+    { bank: ["transports", "transport en commun", "train", "taxi vtc"], ids: ["transport"], names: ["transport"] },
+    { bank: ["hebergement", "hotel", "voyage", "vacances"], ids: ["weekends"], names: ["weekend", "vacances", "voyage", "travel"] },
+    { bank: ["loyers charges", "loyer"], ids: ["loyer"], names: ["loyer", "logement", "housing", "rent"] },
     { bank: ["restaurants bars", "restauration rapide", "restaurant"], ids: ["resto"], names: ["resto", "restaurant"] },
     { bank: ["optique audition", "pharmacie", "medecin", "sante", "dentiste", "hopital", "mutuelle"], ids: ["sante"], names: ["sante"] },
-    { bank: ["electricite gaz", "electricite", "energie", "gaz"], ids: ["electricite"], names: ["electricite", "energie"] },
-    { bank: ["eau"], ids: ["eau"], names: ["eau"] },
+    { bank: ["electricite gaz", "electricite", "energie", "gaz"], ids: ["electricite"], names: ["electricite", "energie", "utilities"] },
+    { bank: ["eau"], ids: ["eau", "electricite"], names: ["eau", "utilities"] },
     { bank: ["telephonie", "internet", "telephone"], ids: ["internet"], names: ["internet", "telephone"] },
     { bank: ["abonnement", "multimedia", "streaming"], ids: ["netflix"], names: ["netflix", "abonnement"] },
-    { bank: ["assurance habitation"], ids: ["assurance_habitation"], names: ["assurance habitation"] },
-    { bank: ["assurance vehicule", "assurance auto"], ids: ["voiture_assurance"], names: ["voiture assurance", "assurance voiture"] },
+    { bank: ["assurance habitation"], ids: ["assurance_habitation", "assurances"], names: ["assurance habitation", "assurance", "insurance"] },
+    { bank: ["assurance vehicule", "assurance auto"], ids: ["voiture_assurance", "assurances"], names: ["voiture assurance", "assurance voiture", "assurance", "insurance"] },
     { bank: ["animaux", "veterinaire"], ids: ["pets"], names: ["pets", "animaux"] },
-    { bank: ["cadeaux", "dons"], ids: ["cadeaux"], names: ["cadeau"] },
-    { bank: ["bricolage", "jardinage", "equipement maison", "ameublement", "travaux"], ids: ["travaux"], names: ["travaux", "maison"] },
-    { bank: ["impots", "taxe fonciere"], ids: ["taxe_fonciere"], names: ["taxe", "impot"] },
+    { bank: ["cadeaux", "dons"], ids: ["cadeaux"], names: ["cadeau", "gift"] },
+    { bank: ["bricolage", "jardinage", "equipement maison", "ameublement", "travaux"], ids: ["travaux"], names: ["travaux", "maison", "home"] },
+    { bank: ["impots", "taxe fonciere"], ids: ["taxe_fonciere"], names: ["taxe", "impot", "tax"] },
     { bank: ["credit immobilier", "pret immobilier", "emprunt"], ids: ["emprunt"], names: ["emprunt", "credit"] },
-    { bank: ["salaires", "salaire", "revenus du travail"], ids: ["salaire"], names: ["salaire"] },
-    { bank: ["epargne", "placement", "livret"], ids: ["epargne"], names: ["epargne"] },
+    { bank: ["salaires", "salaire", "revenus du travail"], ids: ["salaire"], names: ["salaire", "salary"] },
+    { bank: ["epargne", "placement", "livret"], ids: ["epargne"], names: ["epargne", "savings"] },
     { bank: ["retrait", "especes"], ids: [], names: ["retrait", "espece", "liquide", "cash"] },
   ];
   const bankCategoryId = (bankCat) => {
