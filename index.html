@@ -952,15 +952,12 @@ function BudgetTracker({ household, onLogout, onRename }) {
 
     // Genuinely missing — create it and switch to it.
     const id = uid("month");
-    const prevMonth = sortMonthsChronologically(months)[months.length - 1];
-    const recurring = prevMonth
-      ? (transactions[prevMonth.id] || []).filter((t) => t.recurring).map((t) => ({ ...t, id: uid("tx"), date: "" }))
-      : [];
+    // A new month starts empty: expected direct debits live in "Charges récurrentes", not as copied transactions.
     setMonths((ms) => sortMonthsChronologically([...ms, { id, label: currentLabel, date: currentKey + "-01" }]));
-    setIncome((inc) => ({ ...inc, [id]: [{ id: uid("inc"), label: "Revenu", amount: 0 }] }));
+    setIncome((inc) => ({ ...inc, [id]: [] }));
     setSavings((s) => ({ ...s, [id]: 0 }));
     setActuals((a) => ({ ...a, [id]: {} }));
-    setTransactions((t) => ({ ...t, [id]: recurring }));
+    setTransactions((t) => ({ ...t, [id]: [] }));
     setSelectedMonth(id);
   }, [loaded]);
 
@@ -1105,15 +1102,11 @@ function BudgetTracker({ household, onLogout, onRename }) {
     }
     const label = window.prompt("Nom du nouveau mois", suggestion); if (!label) return;
     const id = uid("month");
-    const prevMonth = sortMonthsChronologically(months)[months.length - 1];
-    const recurring = prevMonth
-      ? (transactions[prevMonth.id] || []).filter((t) => t.recurring).map((t) => ({ ...t, id: uid("tx"), date: "" }))
-      : [];
     const key = monthLabelToKey(label);
     setMonths((ms) => sortMonthsChronologically([...ms, key ? { id, label, date: key + "-01" } : { id, label }]));
-    setIncome((inc) => ({ ...inc, [id]: [{ id: uid("inc"), label: "Revenu", amount: 0 }] }));
+    setIncome((inc) => ({ ...inc, [id]: [] }));
     setSavings((s) => ({ ...s, [id]: 0 })); setActuals((a) => ({ ...a, [id]: {} }));
-    setTransactions((t) => ({ ...t, [id]: recurring }));
+    setTransactions((t) => ({ ...t, [id]: [] })); // starts empty (no copy of the previous month)
     setSelectedMonth(id);
   };
   // Deleting a tab deletes its transactions too (before, they stayed hidden in
@@ -2604,7 +2597,7 @@ function BudgetTracker({ household, onLogout, onRename }) {
                             </button>
                           )}
                           <button type="button" className={"tx-btn" + (tx.recurring ? " on" : "")} onClick={() => toggleRecurring(selectedMonth, tx.id)}
-                            title="Une transaction récurrente est recopiée automatiquement chaque mois">
+                            title="Simple repère pour retrouver les dépenses qui reviennent chaque mois (filtre « Récurrentes »)">
                             🔁 {tx.recurring ? "Récurrente" : "Marquer récurrente"}
                           </button>
                           <button type="button" className="tx-btn danger" onClick={() => { removeTransaction(selectedMonth, tx.id); setOpenTx(null); }}>✕ Supprimer</button>
