@@ -525,7 +525,8 @@ const EN = {
   "Total": "Total",
   "+ Ajouter une catégorie": "+ Add a category",
   "Le montant « Réel » est calculé automatiquement à partir des transactions.": "The \"Actual\" amount is computed automatically from the transactions.",
-  " Salaire et Épargne n'apparaissent pas ici : voir « Revenus » et « Épargné ».": " Salary and Savings don't appear here: see \"Income\" and \"Saved\".",
+  " Salaire, Autres revenus et Épargne n'apparaissent pas ici : voir « Revenus » et « Épargné ».": " Salary, Other income and Savings don't appear here: see \"Income\" and \"Saved\".",
+  "opération": "operation",
   "Compté dans le total — classez-les dans « Transactions »": "Counted in the total — sort them in \"Transactions\"",
   "Aucune dépense ce mois-ci pour l'instant.": "No spending this month yet.",
   "hors budget": "no budget",
@@ -1159,6 +1160,7 @@ const STANDARD_CATEGORIES = [
   ["taxe_fonciere", "Impôts & taxes", "Taxes"],
   ["divers", "Divers", "Other"],
   ["salaire", "Salaire", "Salary"],
+  ["autres_revenus", "Autres revenus", "Other income"],
   ["epargne", "Épargne", "Savings"],
 ];
 // Name to show for a category: a standard category that still has its default
@@ -1458,6 +1460,9 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
         setActuals(acts);
       }
 
+      // Every household has an "Autres revenus" (other income) category: added once if missing.
+      const hasOtherIncome = (doc.categories || []).some((c) => c.id === "autres_revenus" || ["autres revenus", "other income"].some((w) => normText(c.name).includes(w)));
+      if (!hasOtherIncome) doc.categories = [...(doc.categories || []), { id: "autres_revenus", name: LANG === "en" ? "Other income" : "Autres revenus", budget: 0 }];
       setCategories(doc.categories); setMonths(sortMonthsChronologically(doc.months)); setIncome(doc.income);
       setSavings(doc.savings); setRecurringFees(doc.recurringFees || []); setCategoryRules(doc.categoryRules || {}); setSavingsAccounts(doc.savingsAccounts || {});
       const fromUrl = initialPlace.view === "depenses" && doc.months.find((m) => m.id === initialPlace.key);
@@ -1593,14 +1598,17 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
   // template or were added manually by a household member.
   const salaireCat = categories.find((c) => c.id === "salaire") || categories.find((c) => ["salaire", "salary"].some((w) => normText(c.name).includes(w)));
   const epargneCat = categories.find((c) => c.id === "epargne") || categories.find((c) => ["epargne", "savings"].some((w) => normText(c.name).includes(w)));
-  const expenseCategories = categories.filter((c) => c.id !== salaireCat?.id && c.id !== epargneCat?.id);
+  // "Autres revenus" (other income): money received in it counts in total income, like salary.
+  const otherIncomeCat = categories.find((c) => c.id === "autres_revenus") || categories.find((c) => ["autres revenus", "other income"].some((w) => normText(c.name).includes(w)));
+  const expenseCategories = categories.filter((c) => c.id !== salaireCat?.id && c.id !== epargneCat?.id && c.id !== otherIncomeCat?.id);
 
   // Salaire transactions are money received (negative app-amount) — flip sign for income.
   const salaryFromTransactions = (m) => (salaireCat ? -categoryTotal(m, salaireCat.id) : 0);
+  const otherIncomeFromTransactions = (m) => (otherIncomeCat ? -categoryTotal(m, otherIncomeCat.id) : 0);
   // Épargne transactions are money moved out to savings (positive app-amount) — add as-is.
   const epargneFromTransactions = (m) => (epargneCat ? categoryTotal(m, epargneCat.id) : 0);
 
-  const monthIncome = (m) => (income[m] || []).reduce((s, l) => s + (Number(l.amount) || 0), 0) + salaryFromTransactions(m);
+  const monthIncome = (m) => (income[m] || []).reduce((s, l) => s + (Number(l.amount) || 0), 0) + salaryFromTransactions(m) + otherIncomeFromTransactions(m);
   const monthSavings = (m) => (Number(savings[m]) || 0) + epargneFromTransactions(m);
   const monthBudgetTotal = expenseCategories.reduce((s, c) => s + (Number(c.budget) || 0), 0);
   // Spending not (yet) in any category — no category, or one that was deleted.
@@ -2854,7 +2862,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
       </div>
       <div className="import-hint" style={{ padding: "4px 8px 10px" }}>
         {t("Le montant « Réel » est calculé automatiquement à partir des transactions.")}
-        {(salaireCat || epargneCat) && t(" Salaire et Épargne n'apparaissent pas ici : voir « Revenus » et « Épargné ».")}
+        {(salaireCat || epargneCat || otherIncomeCat) && t(" Salaire, Autres revenus et Épargne n'apparaissent pas ici : voir « Revenus » et « Épargné ».")}
       </div>
       </React.Fragment></div>) : (
           <div className="cat-list">
@@ -2897,6 +2905,16 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang }) {
                       <span className="money-amt">{fmt(salaryFromTransactions(selectedMonth))}</span>
                     </button>
                     {openAutoDetails.salaire && renderAutoDetails(salaireCat.id, -1)}
+                  </React.Fragment>
+                )}
+                {otherIncomeCat && countIn(otherIncomeCat.id) > 0 && (
+                  <React.Fragment>
+                    <button type="button" className="money-line auto" onClick={() => setOpenAutoDetails((o) => ({ ...o, other: !o.other }))}
+                      title={t("Total automatique des transactions catégorisées « {cat} »", { cat: otherIncomeCat.name })}>
+                      <span>{openAutoDetails.other ? "▾" : "▸"} {cap(otherIncomeCat.name)} <span className="money-meta">· {plural(countIn(otherIncomeCat.id), t("opération"))}, {t("auto")}</span></span>
+                      <span className="money-amt">{fmt(otherIncomeFromTransactions(selectedMonth))}</span>
+                    </button>
+                    {openAutoDetails.other && renderAutoDetails(otherIncomeCat.id, -1)}
                   </React.Fragment>
                 )}
                 {shownIncome.map((l) => (
