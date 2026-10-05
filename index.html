@@ -39,6 +39,17 @@
   .space-bar button { flex: 0 0 auto; font-family: var(--font-body); font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink-soft); cursor: pointer; white-space: nowrap; }
   .space-bar button.active { background: var(--ink); border-color: var(--ink); color: var(--paper); }
   @media (max-width: 720px) { .space-bar .sp-pre { display: none; } .space-bar button { padding: 6px 12px; } }
+  .acc-form-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; padding: 16px 24px 18px; }
+  .acc-kind { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .acc-kind button { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--rule); background: var(--paper); cursor: pointer; font: inherit; color: var(--ink); }
+  .acc-kind button span { font-size: 12px; color: var(--ink-soft); }
+  .acc-kind button.active { border-color: var(--ink); background: var(--sand); }
+  .acc-f-name { grid-column: 1 / -1; }
+  .acc-form-preview { grid-column: 1 / -1; font-size: 14px; color: var(--green); font-weight: 600; }
+  .acc-form-err { font-size: 13px; color: var(--red); align-self: center; }
+  .term-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 6px; }
+  .term-stats > div { display: flex; flex-direction: column; gap: 4px; }
+  @media (max-width: 720px) { .acc-form-body, .acc-kind, .term-stats { grid-template-columns: 1fr; } .acc-form-body { padding: 14px 16px; } }
   .total-split { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--ink-soft); }
   .total-split strong { color: var(--ink); font-family: var(--font-mono); }
   .lang-switch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--rule); border-radius: 999px; background: var(--paper); flex: 0 0 auto; }
@@ -694,6 +705,35 @@ const EN = {
   ", {n} catégorie(s) devinée(s) marquée(s) « ? » à vérifier": ", {n} guessed (marked \"?\") to check",
   ". Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».": ". Check/complete their category below in \"Transactions\".",
   "Nom de la nouvelle catégorie ?": "Name of the new category?",
+  "Donnez un nom au compte.": "Give the account a name.",
+  "Indiquez le montant placé.": "Enter the amount deposited.",
+  "La date d'échéance doit être après la date de début.": "The maturity date must be after the start date.",
+  "Indiquez le taux annuel.": "Enter the annual rate.",
+  "Nouveau compte d'épargne": "New savings account",
+  "Type de compte": "Account type",
+  "Livret / compte avec solde": "Savings account with a balance",
+  "Livret A, LDD, PEL… : solde saisi chaque mois ou relevé importé": "Livret A, LDD, PEL…: balance typed each month or statement imported",
+  "Compte à terme": "Term deposit",
+  "Montant bloqué jusqu'à une date d'échéance, à un taux fixe": "Money locked until a maturity date, at a fixed rate",
+  "Nom": "Name",
+  "ex : CAT 12 mois LCL": "e.g. 12-month term deposit",
+  "ex : Livret A": "e.g. Livret A",
+  "Montant placé (€)": "Amount deposited (€)",
+  "Taux annuel (%)": "Annual rate (%)",
+  "Date de début": "Start date",
+  "Date d'échéance": "Maturity date",
+  "Intérêts à l'échéance ≈ {i} · valeur finale ≈ {v} (avant impôts)": "Interest at maturity ≈ {i} · final value ≈ {v} (before tax)",
+  "Créer le compte": "Create the account",
+  "Annuler": "Cancel",
+  "compte à terme": "term deposit",
+  "Taux {r} % · du {a} au {b}": "Rate {r}% · from {a} to {b}",
+  "Échu le {d}": "Matured on {d}",
+  "Échéance dans {n} jour(s)": "Matures in {n} day(s)",
+  "Intérêts acquis à ce jour": "Interest earned so far",
+  "Intérêts à l'échéance": "Interest at maturity",
+  "Valeur à l'échéance": "Value at maturity",
+  "Détails": "Details",
+  "Intérêts simples : montant × taux × nombre de jours / 365, avant impôts. Ils sont versés à l'échéance : jusque-là, le compte compte pour le montant placé dans le total de l'épargne.": "Simple interest: amount × rate × number of days / 365, before tax. It's paid at maturity: until then, the account counts for the amount deposited in total savings.",
   "Sélectionner « {tx} »": "Select \"{tx}\"",
   "Confirme toutes les catégories devinées (« ? ») de ce mois": "Confirms every guessed category (\"?\") this month",
   "✓ Tout confirmer ({n})": "✓ Confirm all ({n})",
@@ -1253,8 +1293,29 @@ function specialCategories(cats) {
     transfer: find("virement_interne", ["virement interne", "internal transfer"]) || find("vers_foyer", ["virement vers le foyer", "transfer to household"]),
   };
 }
+// ---------- Term deposit (compte à terme) ----------
+// Simple interest: amount × annual rate × days / 365, gross (before tax).
+// Interest is paid at maturity: until then the account is worth the amount placed.
+const dayNum = (iso) => { const d = dateToDayNumber(iso || ""); return d === null ? NaN : d; };
+function termInfo(acc, today = Math.floor(Date.now() / 86400000)) {
+  const capital = Number(acc.capital) || 0, rate = Number(acc.rate) || 0;
+  const start = dayNum(acc.startDate), end = dayNum(acc.endDate);
+  const days = Math.max(0, end - start);
+  const interestAt = (d) => capital * (rate / 100) * Math.max(0, Math.min(d, end) - start) / 365;
+  const matured = today >= end;
+  return {
+    capital, rate, start, end, days, matured,
+    interestTotal: interestAt(end),
+    interestToDate: interestAt(today),
+    valueAtEnd: capital + interestAt(end),
+    value: matured ? capital + interestAt(end) : capital,
+    daysLeft: Math.max(0, end - today),
+    progress: days ? Math.min(1, Math.max(0, (today - start) / days)) : 0,
+  };
+}
 // Last known balance of a savings account (typed by hand, read from the bank, or summed).
 function latestSavingsBalance(acc) {
+  if (acc.kind === "term") return termInfo(acc).value;
   if (acc.manual) {
     const keys = Object.keys(acc.balances || {}).filter((k) => acc.balances[k] !== "" && !isNaN(Number(acc.balances[k]))).sort();
     return keys.length ? Number(acc.balances[keys[keys.length - 1]]) : 0;
@@ -2276,13 +2337,30 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
   // bank's balance column when present (last day of the month), otherwise it
   // is computed by adding up the operations from 0. Months without any
   // operation are filled in with the previous balance.
-  const addSavingsAccount = () => {
-    const name = window.prompt(t("Nom du compte d'épargne (ex : Livret A, PEL, Assurance-vie)"));
-    if (!name || !name.trim()) return;
-    const id = uid("acc");
-    setSavingsAccounts((a) => ({ ...a, [id]: { label: name.trim(), manual: true, balances: {}, entries: [] } }));
-    setSelectedAccount(id);
+  // "+ Compte": a small form to create a savings account (balance typed each month) or a term deposit.
+  const [accForm, setAccForm] = useState(null); // { kind: "manual" | "term", label, capital, startDate, endDate, rate }
+  const todayIso = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+  const addSavingsAccount = () => setAccForm({ kind: "manual", label: "", capital: "", startDate: todayIso(), endDate: "", rate: "" });
+  const accFormError = (f) => {
+    if (!f.label.trim()) return t("Donnez un nom au compte.");
+    if (f.kind !== "term") return "";
+    if (!(parseFloat(String(f.capital).replace(",", ".")) > 0)) return t("Indiquez le montant placé.");
+    if (!f.startDate || !f.endDate || dayNum(f.endDate) <= dayNum(f.startDate)) return t("La date d'échéance doit être après la date de début.");
+    if (isNaN(parseFloat(String(f.rate).replace(",", ".")))) return t("Indiquez le taux annuel.");
+    return "";
   };
+  const createSavingsAccount = () => {
+    const f = accForm;
+    if (accFormError(f)) return;
+    const id = uid("acc");
+    const acc = f.kind === "term"
+      ? { label: f.label.trim(), kind: "term", capital: parseFloat(String(f.capital).replace(",", ".")), startDate: f.startDate, endDate: f.endDate, rate: parseFloat(String(f.rate).replace(",", ".")), entries: [] }
+      : { label: f.label.trim(), manual: true, balances: {}, entries: [] };
+    setSavingsAccounts((a) => ({ ...a, [id]: acc }));
+    setSelectedAccount(id);
+    setAccForm(null);
+  };
+  const updateTermField = (key, field, value) => setSavingsAccounts((a) => ({ ...a, [key]: { ...a[key], [field]: value } }));
   const renameSavingsAccount = (key) => {
     const name = window.prompt(t("Nouveau nom du compte"), savingsAccounts[key]?.label || "");
     if (name && name.trim()) setSavingsAccounts((a) => ({ ...a, [key]: { ...a[key], label: name.trim() } }));
@@ -2295,6 +2373,26 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
     });
   const monthKeyLabel = (k) => { const [y, mo] = k.split("-").map(Number); return monthName(mo - 1) + " " + y; };
   const savingsMonthly = (acc, monthKeys = []) => {
+    if (acc.kind === "term") {
+      // From the start month to the current month (or maturity): worth the amount placed, plus the interest once matured.
+      const info = termInfo(acc);
+      if (isNaN(info.start) || isNaN(info.end)) return { months: [], fromBank: false };
+      const keyOf = (day) => { const d = new Date(day * 86400000); return d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0"); };
+      const today = Math.floor(Date.now() / 86400000);
+      const k0 = keyOf(info.start), k1 = keyOf(Math.min(today, Math.max(info.end, info.start)));
+      const out = []; let prev = null;
+      let [y, mo] = k0.split("-").map(Number);
+      const [y1, m1] = k1.split("-").map(Number);
+      while (y < y1 || (y === y1 && mo <= m1)) {
+        const k = y + "-" + String(mo).padStart(2, "0");
+        const lastDay = Math.round(Date.UTC(y, mo, 0) / 86400000);
+        const balance = info.capital + (Math.min(lastDay, today) >= info.end ? info.interestTotal : 0);
+        out.push({ key: k, label: monthName(mo - 1) + " " + y, in: k === k0 ? info.capital : 0, out: 0, interest: k === keyOf(info.end) && info.end <= today ? info.interestTotal : 0, balance, change: prev === null ? null : balance - prev });
+        prev = balance;
+        mo === 12 ? (y++, mo = 1) : mo++;
+      }
+      return { months: out, fromBank: false };
+    }
     if (acc.manual) {
       // One row per month of the budget (plus any other month that has a
       // balance); the balance is typed by hand and may be left empty.
@@ -2784,6 +2882,41 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
           <button className="month-action primary" onClick={() => savingsInputRef.current && savingsInputRef.current.click()} title={t("Importer le relevé PDF (LCL) ou l'export CSV d'un compte d'épargne : les opérations et le solde sont lus automatiquement")}>{t("↑ Importer un relevé (PDF ou CSV)")}</button>
         </div>
 
+        {accForm && (() => {
+          const f = accForm, err = accFormError(f);
+          const set = (k, v) => setAccForm((x) => ({ ...x, [k]: v }));
+          return (
+            <div className="panel acc-form">
+              <div className="panel-title">{t("Nouveau compte d'épargne")}</div>
+              <div className="acc-form-body">
+                <div className="acc-kind" role="radiogroup" aria-label={t("Type de compte")}>
+                  <button type="button" role="radio" aria-checked={f.kind === "manual"} className={f.kind === "manual" ? "active" : ""} onClick={() => set("kind", "manual")}>
+                    <strong>{t("Livret / compte avec solde")}</strong><span>{t("Livret A, LDD, PEL… : solde saisi chaque mois ou relevé importé")}</span>
+                  </button>
+                  <button type="button" role="radio" aria-checked={f.kind === "term"} className={f.kind === "term" ? "active" : ""} onClick={() => set("kind", "term")}>
+                    <strong>{t("Compte à terme")}</strong><span>{t("Montant bloqué jusqu'à une date d'échéance, à un taux fixe")}</span>
+                  </button>
+                </div>
+                <label className="tx-field acc-f-name"><span>{t("Nom")}</span>
+                  <input type="text" autoFocus value={f.label} placeholder={f.kind === "term" ? t("ex : CAT 12 mois LCL") : t("ex : Livret A")} onChange={(e) => set("label", e.target.value)} /></label>
+                {f.kind === "term" && (<React.Fragment>
+                  <label className="tx-field"><span>{t("Montant placé (€)")}</span><input type="number" min="0" step="0.01" value={f.capital} onChange={(e) => set("capital", e.target.value)} /></label>
+                  <label className="tx-field"><span>{t("Taux annuel (%)")}</span><input type="number" min="0" step="0.01" value={f.rate} placeholder="3,00" onChange={(e) => set("rate", e.target.value)} /></label>
+                  <label className="tx-field"><span>{t("Date de début")}</span><input type="date" value={f.startDate} onChange={(e) => set("startDate", e.target.value)} /></label>
+                  <label className="tx-field"><span>{t("Date d'échéance")}</span><input type="date" value={f.endDate} onChange={(e) => set("endDate", e.target.value)} /></label>
+                  {!err && (() => { const i = termInfo({ capital: parseFloat(String(f.capital).replace(",", ".")), rate: parseFloat(String(f.rate).replace(",", ".")), startDate: f.startDate, endDate: f.endDate });
+                    return <div className="acc-form-preview">{t("Intérêts à l'échéance ≈ {i} · valeur finale ≈ {v} (avant impôts)", { i: fmtCents(i.interestTotal), v: fmtCents(i.valueAtEnd) })}</div>; })()}
+                </React.Fragment>)}
+                <div className="tx-edit-actions" style={{ gridColumn: "1 / -1" }}>
+                  <button type="button" className="tx-btn confirm" disabled={!!err} onClick={createSavingsAccount}>{t("Créer le compte")}</button>
+                  <button type="button" className="tx-btn" onClick={() => setAccForm(null)}>{t("Annuler")}</button>
+                  {err && f.label && <span className="acc-form-err">{err}</span>}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {!curAccount ? (
           <div className="panel">
             <div className="import-hint" style={{ padding: 16 }}>
@@ -2792,6 +2925,43 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
           </div>
         ) : (() => {
           const { key, acc, rows, fromBank, last, first } = curAccount;
+          if (acc.kind === "term") {
+            const i = termInfo(acc);
+            const fmtDate = (iso) => (iso ? new Date(iso + "T00:00:00").toLocaleDateString(LOCALE(), { day: "numeric", month: "long", year: "numeric" }) : "—");
+            const num = (v) => { const n = parseFloat(String(v).replace(",", ".")); return isNaN(n) ? "" : n; };
+            return (
+              <div className="sav-grid">
+                <div className="panel" style={{ padding: "26px 30px", display: "flex", flexDirection: "column", gap: 12 }}>
+                  <span className="hero-kicker">{acc.label} · {t("compte à terme")}</span>
+                  <span className="hero-big" style={{ color: "var(--ink)" }}>{fmt(Math.round(i.value))}</span>
+                  <span style={{ fontSize: 15, color: "var(--ink-soft)" }}>
+                    {t("Taux {r} % · du {a} au {b}", { r: String(i.rate).replace(".", LANG === "en" ? "." : ","), a: fmtDate(acc.startDate), b: fmtDate(acc.endDate) })}
+                  </span>
+                  <div className="bar-track"><div className={"bar-fill" + (i.matured ? " reached" : "")} style={{ width: Math.round(i.progress * 100) + "%" }}></div></div>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: i.matured ? "var(--gold)" : "var(--green)" }}>
+                    {i.matured ? t("Échu le {d}", { d: fmtDate(acc.endDate) }) : t("Échéance dans {n} jour(s)", { n: i.daysLeft })}
+                  </span>
+                  <div className="term-stats">
+                    <div><span className="hero-label">{t("Intérêts acquis à ce jour")}</span><span className="hero-num">{fmtCents(i.interestToDate)}</span></div>
+                    <div><span className="hero-label">{t("Intérêts à l'échéance")}</span><span className="hero-num">{fmtCents(i.interestTotal)}</span></div>
+                    <div><span className="hero-label">{t("Valeur à l'échéance")}</span><span className="hero-num">{fmtCents(i.valueAtEnd)}</span></div>
+                  </div>
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12 }}>
+                    <button className="btn-link" style={{ marginTop: 0 }} onClick={() => renameSavingsAccount(key)}>{t("✎ Renommer le compte")}</button>
+                    <button className="btn-link" style={{ marginTop: 0, color: "var(--red)" }} onClick={() => removeSavingsAccount(key)}>{t("✕ Supprimer le compte")}</button>
+                  </div>
+                </div>
+                <div className="panel" style={{ padding: "22px 24px", display: "flex", flexDirection: "column", gap: 10 }}>
+                  <h2 style={{ margin: "0 0 4px", fontFamily: "var(--font-display)", fontSize: 21, fontWeight: 600 }}>{t("Détails")}</h2>
+                  <label className="tx-field"><span>{t("Montant placé (€)")}</span><input type="number" min="0" step="0.01" value={acc.capital} onChange={(e) => updateTermField(key, "capital", num(e.target.value))} /></label>
+                  <label className="tx-field"><span>{t("Taux annuel (%)")}</span><input type="number" min="0" step="0.01" value={acc.rate} onChange={(e) => updateTermField(key, "rate", num(e.target.value))} /></label>
+                  <label className="tx-field"><span>{t("Date de début")}</span><input type="date" value={acc.startDate} onChange={(e) => updateTermField(key, "startDate", e.target.value)} /></label>
+                  <label className="tx-field"><span>{t("Date d'échéance")}</span><input type="date" value={acc.endDate} onChange={(e) => updateTermField(key, "endDate", e.target.value)} /></label>
+                  <div className="import-hint" style={{ fontSize: 12, lineHeight: 1.5 }}>{t("Intérêts simples : montant × taux × nombre de jours / 365, avant impôts. Ils sont versés à l'échéance : jusque-là, le compte compte pour le montant placé dans le total de l'épargne.")}</div>
+                </div>
+              </div>
+            );
+          }
           const charted = rows.filter((r) => r.balance !== null);
           const prevBal = charted.length > 1 ? charted[charted.length - 2].balance : null;
           const recentMonth = !acc.manual && acc.entries.length ? [...acc.entries].map((e) => e.date).sort().pop().slice(0, 7) : null;
