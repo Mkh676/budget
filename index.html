@@ -971,23 +971,34 @@ function readBankCsv(text) {
     col.date = bi;
   }
   if (col.amount === -1 && (col.debit === -1 || col.credit === -1)) {
-    let bi = -1, bs = 0.7;
+    // The column where the most rows hold a number (at least 70 % of its filled cells).
+    let bi = -1, bn = 0;
     for (let i = 0; i < width; i++) {
       if (i === col.date) continue;
-      const s = share(i, (v) => !isNaN(parseBankAmount(v)) && /[.,]\d{2}\b|^-/.test(v.trim()));
-      if (s > bs) { bs = s; bi = i; }
+      const vals = body.map((r) => (r[i] || "").trim()).filter(Boolean);
+      const n = vals.filter((v) => !isNaN(parseBankAmount(v))).length;
+      if (vals.length && n / vals.length >= 0.7 && n > bn) { bn = n; bi = i; }
     }
     col.amount = bi;
   }
+  // Without a label column: every column holding descriptions (long text), longest first.
+  // Some banks (LCL) put the description of a payment and of money received in two
+  // different columns: each row takes the first one it has filled in.
+  col.labels = [];
   if (col.label === -1 && col.party === -1) {
-    let bi = -1, bl = 0;
+    // Text with words in it (not a cheque or account number), not a date.
+    const textish = (v) => v && /\p{L}{3,}/u.test(v) && dateToDayNumber(v) === null;
+    const scored = [];
     for (let i = 0; i < width; i++) {
       if (i === col.date || i === col.amount) continue;
-      const vals = body.map((r) => r[i] || "").filter((v) => v && isNaN(parseBankAmount(v)) && dateToDayNumber(v) === null);
-      const avg = vals.length ? vals.reduce((a, v) => a + v.length, 0) / body.length : 0;
-      if (avg > bl) { bl = avg; bi = i; }
+      const vals = body.map((r) => (r[i] || "").trim()).filter(textish);
+      const avgLen = vals.length ? vals.reduce((a, v) => a + v.length, 0) / vals.length : 0;
+      // A few repeated values ("Virement", "Carte", "Divers") is a type/category column, not descriptions.
+      const variety = vals.length ? new Set(vals).size / vals.length : 0;
+      if (vals.length >= Math.max(1, body.length * 0.05) && avgLen >= 8 && (vals.length < 20 || variety >= 0.3)) scored.push({ i, avgLen });
     }
-    col.label = bi;
+    col.labels = scored.sort((a, b) => b.avgLen - a.avgLen).map((x) => x.i);
+    col.label = col.labels.length ? col.labels[0] : -1;
   }
   const missing = [];
   if (col.date === -1) missing.push("date");
@@ -1018,7 +1029,16 @@ function readBankCsv(text) {
     }
     if (isNaN(amount)) continue;
     if (col.sh !== -1 && /^s$/i.test((c[col.sh] || "").trim())) amount = -Math.abs(amount);
-    const text = (c[col.label] || "").trim();
+    let text = (c[col.label] || "").trim();
+    for (const i of col.labels) { if (text) break; text = (c[i] || "").trim(); }
+    if (!text && col.labels.length) {
+      // No description (e.g. a cheque): use the other cells ("Chèque 5815952"); a row with
+      // no word at all (e.g. the account-balance line at the top of LCL files) is skipped.
+      const rest = c.filter((v, i) => i !== col.date && i !== col.amount && v && v.trim() && !/^0$/.test(v.trim())).map((v) => v.trim());
+      if (!rest.some((v) => /\p{L}{3,}/u.test(v))) continue;
+      text = rest.join(" ");
+    }
+    if (col.labels.length) text = text.replace(/\s{2,}/g, " "); // files without a header only: keeps other banks' labels exactly as before
     const partyCol = amount > 0 && col.payer !== -1 && (c[col.payer] || "").trim() ? col.payer : col.party;
     const party = partyCol !== -1 ? (c[partyCol] || "").trim() : "";
     // The other party first (best for recognising the merchant), then the purpose.
