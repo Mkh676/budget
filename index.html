@@ -50,6 +50,7 @@
   .term-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 6px; }
   .term-stats > div { display: flex; flex-direction: column; gap: 4px; }
   @media (max-width: 720px) { .acc-form-body, .acc-kind, .term-stats { grid-template-columns: 1fr; } .acc-form-body { padding: 14px 16px; } }
+  .move-select { font-family: var(--font-body); font-size: 12px; color: var(--gold); background: transparent; border: 1px solid var(--rule); border-radius: 999px; padding: 3px 8px; cursor: pointer; }
   .total-split { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--ink-soft); }
   .total-split strong { color: var(--ink); font-family: var(--font-mono); }
   .lang-switch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--rule); border-radius: 999px; background: var(--paper); flex: 0 0 auto; }
@@ -705,6 +706,12 @@ const EN = {
   ", {n} catégorie(s) devinée(s) marquée(s) « ? » à vérifier": ", {n} guessed (marked \"?\") to check",
   ". Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».": ". Check/complete their category below in \"Transactions\".",
   "Nom de la nouvelle catégorie ?": "Name of the new category?",
+  "Déplacer « {acc} » vers {dest} ? Le compte et tout son historique y seront transférés.": "Move \"{acc}\" to {dest}? The account and all its history will be transferred there.",
+  "Déplacement impossible : le budget de destination n'a pas pu être lu.": "Couldn't move it: the destination budget couldn't be read.",
+  "Déplacement impossible : le budget de destination n'a pas pu être enregistré.": "Couldn't move it: the destination budget couldn't be saved.",
+  "« {acc} » a été déplacé vers {dest}.": "\"{acc}\" was moved to {dest}.",
+  "Déplacer vers…": "Move to…",
+  "⇄ Déplacer vers…": "⇄ Move to…",
   "Donnez un nom au compte.": "Give the account a name.",
   "Indiquez le montant placé.": "Enter the amount deposited.",
   "La date d'échéance doit être après la date de début.": "The maturity date must be after the start date.",
@@ -746,6 +753,7 @@ const EN = {
   "Budgets": "Budgets",
   "Foyer": "Household",
   "Perso ·": "Personal ·",
+  "Perso · {name}": "Personal · {name}",
   "budget perso de {name}": "{name}'s personal budget",
   "vue d'ensemble": "overview",
   "Virements internes": "Internal transfers",
@@ -1557,7 +1565,7 @@ function HouseholdSetup({ session, onReady }) {
 }
 
 // ---------- Main budget tracker (shared, per household) ----------
-function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spaceBar, nameWords }) {
+function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spaceBar, nameWords, moveTargets }) {
   // space: { kind: "household" } or { kind: "member", userId, name } — whose budget this is.
   const budgetQuery = () => space.kind === "member"
     ? sb.from("member_budget").select("data").eq("household_id", household.id).eq("user_id", space.userId)
@@ -2327,6 +2335,39 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
       reader.readAsArrayBuffer(file);
     }
   };
+  // Move a savings account (with all its history) to another budget of the household.
+  const [moving, setMoving] = useState(false);
+  const moveSavingsAccount = async (key, target) => {
+    const acc = savingsAccounts[key];
+    if (!acc || !target) return;
+    if (!window.confirm(t("Déplacer « {acc} » vers {dest} ? Le compte et tout son historique y seront transférés.", { acc: acc.label, dest: target.name }))) return;
+    setMoving(true);
+    const q = target.kind === "member"
+      ? sb.from("member_budget").select("data").eq("household_id", household.id).eq("user_id", target.userId)
+      : sb.from("household_budget").select("data").eq("household_id", household.id);
+    const { data, error } = await q.maybeSingle();
+    if (error || !data) { setMoving(false); window.alert(t("Déplacement impossible : le budget de destination n'a pas pu être lu.")); return; }
+    const doc = data.data || {};
+    const accounts = { ...(doc.savingsAccounts || {}) };
+    const newKey = accounts[key] ? uid("acc") : key;
+    accounts[newKey] = acc;
+    const upd = target.kind === "member"
+      ? sb.from("member_budget").update({ data: { ...doc, savingsAccounts: accounts }, updated_at: new Date().toISOString() }).eq("household_id", household.id).eq("user_id", target.userId)
+      : sb.from("household_budget").update({ data: { ...doc, savingsAccounts: accounts }, updated_at: new Date().toISOString() }).eq("household_id", household.id);
+    const { error: e2 } = await upd;
+    setMoving(false);
+    if (e2) { window.alert(t("Déplacement impossible : le budget de destination n'a pas pu être enregistré.")); return; }
+    setSavingsAccounts((a) => { const { [key]: _, ...rest } = a; return rest; });
+    setSelectedAccount(null);
+    setImportSummary(t("« {acc} » a été déplacé vers {dest}.", { acc: acc.label, dest: target.name }));
+  };
+  const moveMenu = (key) => (moveTargets || []).length > 0 && (
+    <select className="move-select" aria-label={t("Déplacer vers…")} value="" disabled={moving}
+      onChange={(e) => { const tg = moveTargets.find((x) => x.key === e.target.value); if (tg) moveSavingsAccount(key, tg); }}>
+      <option value="">{t("⇄ Déplacer vers…")}</option>
+      {moveTargets.map((x) => <option key={x.key} value={x.key}>{x.name}</option>)}
+    </select>
+  );
   const removeSavingsAccount = (key) => {
     const acc = savingsAccounts[key];
     if (!window.confirm(t("Êtes-vous sûr de vouloir supprimer le compte d'épargne « {acc} » et ses {n} opération(s) ? (Annulable avec « ↶ Annuler »)", { acc: acc?.label || key, n: acc?.entries.length || 0 }))) return;
@@ -2949,6 +2990,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
                   <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12 }}>
                     <button className="btn-link" style={{ marginTop: 0 }} onClick={() => renameSavingsAccount(key)}>{t("✎ Renommer le compte")}</button>
                     <button className="btn-link" style={{ marginTop: 0, color: "var(--red)" }} onClick={() => removeSavingsAccount(key)}>{t("✕ Supprimer le compte")}</button>
+                    {moveMenu(key)}
                   </div>
                 </div>
                 <div className="panel" style={{ padding: "22px 24px", display: "flex", flexDirection: "column", gap: 10 }}>
@@ -2985,6 +3027,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
                 <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12 }}>
                   <button className="btn-link" style={{ marginTop: 0 }} onClick={() => renameSavingsAccount(key)}>{t("✎ Renommer le compte")}</button>
                   <button className="btn-link" style={{ marginTop: 0, color: "var(--red)" }} onClick={() => removeSavingsAccount(key)}>{t("✕ Supprimer le compte")}</button>
+                    {moveMenu(key)}
                 </div>
               </div>
               <div className="panel" style={{ padding: "22px 24px", display: "flex", flexDirection: "column" }}>
@@ -3699,7 +3742,10 @@ function Workspace({ household, session, onLogout, onRename, lang, onLang }) {
   const spaceObj = member ? { kind: "member", userId: member.userId, name: member.name } : { kind: "household" };
   // Names that identify the household's own accounts in bank labels (first names, and my e-mail's words).
   const nameWords = [...new Set([...members.map((m) => normText(m.name)), ...normText(String(session.user.email || "").split("@")[0]).split(" ")])].filter((w) => w.length >= 3 && w !== "moi");
-  return <BudgetTracker key={current} household={household} onLogout={onLogout} onRename={onRename} lang={lang} onLang={onLang} space={spaceObj} spaceBar={spaceBar} nameWords={nameWords} />;
+  // Where a savings account can be moved: the household budget and every personal budget, except this one.
+  const moveTargets = [{ kind: "household", key: "household", name: t("Foyer") }, ...members.map((m) => ({ kind: "member", key: m.userId, userId: m.userId, name: t("Perso · {name}", { name: m.name }) }))]
+    .filter((x) => x.key !== current);
+  return <BudgetTracker key={current} household={household} onLogout={onLogout} onRename={onRename} lang={lang} onLang={onLang} space={spaceObj} spaceBar={spaceBar} nameWords={nameWords} moveTargets={moveTargets} />;
 }
 
 // ---------- Total: household + every member's personal budget ----------
