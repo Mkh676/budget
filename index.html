@@ -706,6 +706,7 @@ const EN = {
   ", {n} catégorie(s) devinée(s) marquée(s) « ? » à vérifier": ", {n} guessed (marked \"?\") to check",
   ". Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».": ". Check/complete their category below in \"Transactions\".",
   "Nom de la nouvelle catégorie ?": "Name of the new category?",
+  "Ajoutée(s) à l'instant": "Just added",
   "Déplacer « {acc} » vers {dest} ? Le compte et tout son historique y seront transférés.": "Move \"{acc}\" to {dest}? The account and all its history will be transferred there.",
   "Déplacement impossible : le budget de destination n'a pas pu être lu.": "Couldn't move it: the destination budget couldn't be read.",
   "Déplacement impossible : le budget de destination n'a pas pu être enregistré.": "Couldn't move it: the destination budget couldn't be saved.",
@@ -1595,6 +1596,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
   const [txSort, setTxSort] = useState("default");
   const [openTx, setOpenTx] = useState(null); // transaction whose edit form is open
   const [txShowAll, setTxShowAll] = useState(false);
+  const [justAdded, setJustAdded] = useState({}); // { [txId]: true } — expenses added by hand this visit, kept at the bottom
   const [selectMode, setSelectMode] = useState(false); // ticking several transactions to act on them at once
   const [selectedTx, setSelectedTx] = useState({}); // { [txId]: true }
   const [openAutoDetails, setOpenAutoDetails] = useState({});
@@ -2634,8 +2636,16 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
   const addManualTransaction = (m) => {
     const id = uid("tx");
     const label = t("Nouvelle dépense");
-    setTransactions((tr) => ({ ...tr, [m]: [...(tr[m] || []), { id, date: "", label, amount: 0, categoryId: "" }] }));
-    setTxQuery(""); setTxCatFilter(""); setOpenTx(id);
+    // Dated today in the current month; in another month, the 1st of that month.
+    const now = new Date();
+    const todayKey = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    const mk = monthSortKey(months.find((x) => x.id === m) || {}) || todayKey;
+    const date = mk === todayKey ? todayKey + "-" + String(now.getDate()).padStart(2, "0") : mk + "-01";
+    setTransactions((tr) => ({ ...tr, [m]: [...(tr[m] || []), { id, date, label, amount: 0, categoryId: "" }] }));
+    setJustAdded((j) => ({ ...j, [id]: true }));
+    setTxQuery(""); setTxCatFilter(""); setTxShowAll(true); setSelectMode(false); setOpenTx(id);
+    // The new line is at the bottom of the list, open for editing: bring it into view.
+    setTimeout(() => { const el = document.querySelector(".tx-item.open"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 80);
   };
   const toggleRecurring = (m, txId) =>
     setTransactions((t) => ({ ...t, [m]: (t[m] || []).map((tx) => (tx.id === txId ? { ...tx, recurring: !tx.recurring } : tx)) }));
@@ -3439,20 +3449,23 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
               };
               const LIMIT = 30;
               const limited = !filtering && !txShowAll && all.length > LIMIT;
-              const shown = limited ? all.slice(0, LIMIT) : all;
-              // Grouped by day when sorted by date; transactions without a date come first.
+              const shown = limited ? all.slice(0, LIMIT).concat(all.slice(LIMIT).filter((x) => justAdded[x.id])) : all;
+              // Grouped by day when sorted by date. Expenses just added by hand and transactions without
+              // a date come last, right above "+ Ajouter une dépense".
               const byDate = sortKey === "date_desc" || sortKey === "date_asc";
               const groups = [];
               if (byDate) {
-                const undated = shown.filter((tx) => day(tx) === -Infinity);
-                if (undated.length) groups.push({ key: "none", title: t("Sans date"), items: undated });
                 shown.forEach((tx) => {
                   const d = day(tx);
-                  if (d === -Infinity) return;
+                  if (d === -Infinity || justAdded[tx.id]) return;
                   const last = groups[groups.length - 1];
                   if (last && last.key === d) last.items.push(tx);
                   else groups.push({ key: d, title: dayTitle(d), items: [tx] });
                 });
+                const undated = shown.filter((tx) => day(tx) === -Infinity && !justAdded[tx.id]);
+                if (undated.length) groups.push({ key: "none", title: t("Sans date"), items: undated });
+                const added = shown.filter((tx) => justAdded[tx.id]);
+                if (added.length) groups.push({ key: "added", title: t("Ajoutée(s) à l'instant"), items: added });
               } else groups.push({ key: "all", title: null, items: shown });
 
               const renderRow = (tx) => {
