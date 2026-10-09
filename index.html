@@ -2633,7 +2633,8 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
   // New lines start without a date, so they show at the top of the list, already open for editing.
   const addManualTransaction = (m) => {
     const id = uid("tx");
-    setTransactions((t) => ({ ...t, [m]: [...(t[m] || []), { id, date: "", label: t("Nouvelle dépense"), amount: 0, categoryId: "" }] }));
+    const label = t("Nouvelle dépense");
+    setTransactions((tr) => ({ ...tr, [m]: [...(tr[m] || []), { id, date: "", label, amount: 0, categoryId: "" }] }));
     setTxQuery(""); setTxCatFilter(""); setOpenTx(id);
   };
   const toggleRecurring = (m, txId) =>
