@@ -450,6 +450,8 @@ const EN = {
   "Rejoindre": "Join",
   "Chargement…": "Loading…",
   "Chargement du budget…": "Loading the budget…",
+  "Réessayer": "Try again",
+  "Le budget n'a pas pu être chargé (connexion ou session expirée). Rien n'a été modifié.": "The budget couldn't be loaded (connection or expired session). Nothing was changed.",
   "✓ Mot de passe modifié.": "✓ Password changed.",
   "Impossible de renommer le foyer : ": "Couldn't rename the household: ",
   "Langue": "Language",
@@ -1613,10 +1615,19 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
   const saveTimer = useRef(null);
   const csvInputRef = useRef(null);
 
+  // If the saved budget can't be read (expired session, network…), nothing is shown and
+  // nothing is saved: starting from an empty budget would overwrite the real one.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   useEffect(() => {
     (async () => {
-      const { data, error } = await budgetQuery().maybeSingle();
-      const doc = (data && data.data) || emptyBudgetDoc(LANG, space.kind === "member");
+      setLoadFailed(false);
+      let res = await budgetQuery().maybeSingle();
+      if (res.error) { await sb.auth.refreshSession().catch(() => {}); res = await budgetQuery().maybeSingle(); }
+      const { data, error } = res;
+      if (error || !data || !data.data || typeof data.data !== "object") { setLoadFailed(true); return; }
+      const doc = data.data;
+      doc.months = doc.months || []; doc.categories = doc.categories || [];
       docExtras.current = doc.ownerName ? { ownerName: doc.ownerName } : {};
       // Drop data left behind by month tabs that no longer exist (tabs deleted
       // before deletion also removed their data), so it can't resurface or
@@ -1666,7 +1677,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
       setSelectedMonth(fromUrl ? fromUrl.id : currentMonthId(doc.months));
       setLoaded(true);
     })();
-  }, [household.id]);
+  }, [household.id, loadAttempt]);
 
   // Accueil and Dépenses always open on the current month.
   useEffect(() => {
@@ -2673,6 +2684,15 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
     !recurringFees.some((f) => feeAmountClose(f, tx.amount, 0.05) && feeLabelOverlap(f, tx.label));
 
 
+  if (loadFailed) return (
+    <div style={{ padding: 40 }}>
+      <p className="err">{t("Le budget n'a pas pu être chargé (connexion ou session expirée). Rien n'a été modifié.")}</p>
+      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+        <button className="btn" onClick={() => setLoadAttempt((n) => n + 1)}>{t("Réessayer")}</button>
+        <button className="btn-link" onClick={onLogout}>{t("Se déconnecter")}</button>
+      </div>
+    </div>
+  );
   if (!loaded || !selectedMonth) return <div style={{ padding: 40 }}>{t("Chargement du budget…")}</div>;
 
   const commitNameEdit = () => {
