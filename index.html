@@ -451,6 +451,14 @@ const EN = {
   "Chargement…": "Loading…",
   "Chargement du budget…": "Loading the budget…",
   "Réessayer": "Try again",
+  "⚠ Non enregistré": "⚠ Not saved",
+  "⚠ Cette modification supprimerait plus de la moitié des transactions. Rien n'a été enregistré.": "⚠ This change would delete more than half of the transactions. Nothing was saved.",
+  "⚠ Ce budget a été modifié ailleurs (autre onglet, appareil ou membre). Vos dernières modifications n'ont pas été enregistrées, pour ne rien écraser.": "⚠ This budget was changed elsewhere (another tab, device or member). Your latest changes weren't saved, so nothing gets overwritten.",
+  "Enregistrer quand même ? Les transactions supprimées seront perdues.": "Save anyway? The deleted transactions will be lost.",
+  "Enregistrer quand même": "Save anyway",
+  "Recharger": "Reload",
+  "Supprimer la catégorie « {c} » ?": "Delete the category \"{c}\"?",
+  "Ses {n} transaction(s) resteront, sans catégorie.": "Its {n} transaction(s) will stay, uncategorized.",
   "Le budget n'a pas pu être chargé (connexion ou session expirée). Rien n'a été modifié.": "The budget couldn't be loaded (connection or expired session). Nothing was changed.",
   "✓ Mot de passe modifié.": "✓ Password changed.",
   "Impossible de renommer le foyer : ": "Couldn't rename the household: ",
@@ -1571,8 +1579,14 @@ function HouseholdSetup({ session, onReady }) {
 function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spaceBar, nameWords, moveTargets }) {
   // space: { kind: "household" } or { kind: "member", userId, name } — whose budget this is.
   const budgetQuery = () => space.kind === "member"
-    ? sb.from("member_budget").select("data").eq("household_id", household.id).eq("user_id", space.userId)
-    : sb.from("household_budget").select("data").eq("household_id", household.id);
+    ? sb.from("member_budget").select("data, updated_at").eq("household_id", household.id).eq("user_id", space.userId)
+    : sb.from("household_budget").select("data, updated_at").eq("household_id", household.id);
+  // Safety net for saving: the version we last read or wrote (a save only replaces that exact
+  // version, so a stale tab or device can't overwrite newer data), and how many transactions it held
+  // (a save that would drop more than half of them is held back until confirmed).
+  const lastSaved = useRef({ updatedAt: null, txCount: 0 });
+  const allowShrink = useRef(false);
+  const [saveNonce, setSaveNonce] = useState(0);
   const docExtras = useRef({}); // fields of the saved budget this screen doesn't edit (e.g. ownerName)
   const [loaded, setLoaded] = useState(false);
   const [rawCategories, setCategories] = useState([]); // as saved
@@ -1636,6 +1650,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
       const onlyLive = (obj) => Object.fromEntries(Object.entries(obj || {}).filter(([k]) => liveMonths.has(k)));
       doc.income = onlyLive(doc.income); doc.savings = onlyLive(doc.savings);
       const txs = onlyLive(doc.transactions);
+      lastSaved.current = { updatedAt: data.updated_at, txCount: Object.values(txs).reduce((n, l) => n + (l || []).length, 0) };
       let acts = onlyLive(doc.actuals);
 
       // One-time migration: turn any legacy "manual total" numbers into a
@@ -1736,14 +1751,22 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       const data = { ...docExtras.current, categories: rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, migratedActuals: true };
-      const q = space.kind === "member"
+      const prev = lastSaved.current;
+      const txCount = Object.values(transactions).reduce((n, l) => n + (l || []).length, 0);
+      if (!allowShrink.current && prev.txCount >= 20 && txCount < prev.txCount / 2) { setSaveState("blocked"); return; }
+      let q = space.kind === "member"
         ? sb.from("member_budget").update({ data, updated_at: new Date().toISOString() }).eq("household_id", household.id).eq("user_id", space.userId)
         : sb.from("household_budget").update({ data, updated_at: new Date().toISOString() }).eq("household_id", household.id);
-      const { error } = await q;
-      setSaveState(error ? "error" : "saved");
+      if (prev.updatedAt) q = q.eq("updated_at", prev.updatedAt);
+      const { data: rows, error } = await q.select("updated_at");
+      if (error) { setSaveState("error"); return; }
+      if (!rows || rows.length === 0) { setSaveState("conflict"); return; } // changed elsewhere since we read it
+      lastSaved.current = { updatedAt: rows[0].updated_at, txCount };
+      allowShrink.current = false;
+      setSaveState("saved");
     }, 500);
     return () => clearTimeout(saveTimer.current);
-  }, [rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, loaded]);
+  }, [rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, loaded, saveNonce]);
 
   // ---------- Undo ----------
   // Every change to the budget data pushes the previous state onto a stack.
@@ -1781,6 +1804,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
     undoStack.current = undoStack.current.slice(0, -1);
     setUndoCount(undoStack.current.length);
     restoringUndo.current = true;
+    allowShrink.current = true; // undoing is an explicit choice (e.g. undoing an import)
     setCategories(prev.categories); setMonths(prev.months); setIncome(prev.income); setSavings(prev.savings);
     setActuals(prev.actuals); setTransactions(prev.transactions); setRecurringFees(prev.recurringFees); setCategoryRules(prev.categoryRules); setSavingsAccounts(prev.savingsAccounts || {});
     if (!prev.months.some((m) => m.id === selectedMonth)) setSelectedMonth(prev.months[0]?.id || null);
@@ -1835,6 +1859,9 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
   const renameCategory = (id, name) => setCategories((cs) => cs.map((c) => (c.id === id ? { ...c, name } : c)));
   const addCategory = () => setCategories((cs) => [...cs, { id: uid("cat"), name: t("Nouvelle catégorie"), budget: 0 }]);
   const removeCategory = (id) => {
+    const used = Object.values(transactions).reduce((n, l) => n + (l || []).filter((tx) => tx.categoryId === id).length, 0);
+    const cat = rawCategories.find((c) => c.id === id);
+    if (!window.confirm(t("Supprimer la catégorie « {c} » ?", { c: cat ? categoryLabel(cat) : "" }) + (used ? " " + t("Ses {n} transaction(s) resteront, sans catégorie.", { n: used }) : ""))) return;
     setCategories((cs) => cs.filter((c) => c.id !== id));
     setActuals((a) => { const next = { ...a }; for (const m of Object.keys(next)) { const { [id]: _, ...rest } = next[m] || {}; next[m] = rest; } return next; });
     setTransactions((t) => {
@@ -1895,6 +1922,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
       (nFiles ? t(", et {n} relevé(s) importé(s) (définitif)", { n: nFiles }) : "") + ".\n" +
       t("(Vous pourrez encore revenir en arrière avec « ↶ Annuler » tant que la page reste ouverte.)")
     )) return;
+    allowShrink.current = true;
     // Remove every piece of data keyed by this month, not just the tab.
     const without = (obj) => { const { [id]: _, ...rest } = obj || {}; return rest; };
     setMonths((ms) => ms.filter((x) => x.id !== id));
@@ -2877,7 +2905,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
           <div className="appbar-actions">
             <input ref={csvInputRef} type="file" accept=".csv,.txt,.tsv,text/csv,text/plain" onChange={handleCsvFile} style={{ display: "none" }} />
             <LangSwitch lang={lang} onChange={onLang} />
-            <span className="save-pill">{t(saveState === "saving" ? "Enregistrement…" : saveState === "error" ? "⚠ Erreur d'enregistrement" : "✓ Enregistré")}</span>
+            <span className="save-pill">{t(saveState === "saving" ? "Enregistrement…" : saveState === "error" ? "⚠ Erreur d'enregistrement" : saveState === "blocked" || saveState === "conflict" ? "⚠ Non enregistré" : "✓ Enregistré")}</span>
             <button className="reset-btn" onClick={undo} disabled={undoCount === 0} style={{ opacity: undoCount === 0 ? 0.45 : 1, cursor: undoCount === 0 ? "default" : "pointer" }} title={t("Annuler la dernière modification (Ctrl+Z / ⌘Z)")}>
               {t("↶ Annuler")}{undoCount > 0 ? ` (${undoCount})` : ""}
             </button>
@@ -2887,6 +2915,22 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
         </div>
         {spaceBar}
       </header>
+
+      {(saveState === "blocked" || saveState === "conflict") && (
+        <div role="alert" style={{ maxWidth: 1080, margin: "0 auto 18px", padding: "12px 16px", borderRadius: 12, background: "var(--paper)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", border: "2px solid var(--red)" }}>
+          <span>{saveState === "blocked"
+            ? t("⚠ Cette modification supprimerait plus de la moitié des transactions. Rien n'a été enregistré.")
+            : t("⚠ Ce budget a été modifié ailleurs (autre onglet, appareil ou membre). Vos dernières modifications n'ont pas été enregistrées, pour ne rien écraser.")}</span>
+          <span style={{ display: "flex", gap: 8 }}>
+            {saveState === "blocked" ? (<>
+              <button className="btn" onClick={undo} disabled={undoCount === 0}>{t("↶ Annuler")}</button>
+              <button className="btn-link" style={{ marginTop: 0, color: "var(--red)" }} onClick={() => { if (window.confirm(t("Enregistrer quand même ? Les transactions supprimées seront perdues."))) { allowShrink.current = true; setSaveNonce((n) => n + 1); } }}>{t("Enregistrer quand même")}</button>
+            </>) : (
+              <button className="btn" onClick={() => window.location.reload()}>{t("Recharger")}</button>
+            )}
+          </span>
+        </div>
+      )}
 
       {importSummary && (
         <div className="import-summary" style={{ maxWidth: 1080, margin: "0 auto 18px", padding: "12px 16px", borderRadius: 12, background: "var(--paper)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, border: "1px solid var(--rule)" }}>
