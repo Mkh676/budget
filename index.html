@@ -46,6 +46,15 @@
   .acc-kind button.active { border-color: var(--ink); background: var(--sand); }
   .acc-f-name { grid-column: 1 / -1; }
   .acc-form-preview { grid-column: 1 / -1; font-size: 14px; color: var(--green); font-weight: 600; }
+  .tx-trip { margin-left: 8px; padding: 2px 8px; border-radius: 99px; background: #EAF0F6; color: #2F4F6E; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .trip-card { padding: 24px 28px 20px; }
+  .trip-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  .trip-name { font-family: var(--font-display); font-size: 40px; font-weight: 700; line-height: 1.05; margin-top: 6px; }
+  .trip-figures { display: flex; gap: 32px; flex-wrap: wrap; margin: 18px 0 14px; align-items: flex-end; }
+  .trip-figures > div { display: flex; flex-direction: column; gap: 4px; }
+  .trip-big { font-family: var(--font-display); font-size: 56px; font-weight: 800; line-height: 0.95; letter-spacing: -0.02em; }
+  .trip-budget-input { width: 90px; margin-left: 6px; }
+  @media (max-width: 720px) { .trip-card { padding: 18px 16px; } .trip-name { font-size: 30px; } .trip-big { font-size: 42px; } .trip-figures { gap: 20px; } }
   .acc-form-err { font-size: 13px; color: var(--red); align-self: center; }
   .term-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 6px; }
   .term-stats > div { display: flex; flex-direction: column; gap: 4px; }
@@ -451,6 +460,46 @@ const EN = {
   "Chargement…": "Loading…",
   "Chargement du budget…": "Loading the budget…",
   "Réessayer": "Try again",
+  "Vacances": "Vacations",
+  "+ Vacances": "+ Vacation",
+  "Nouvelles vacances": "New vacation",
+  "Modifier les vacances": "Edit vacation",
+  "ex : Espagne": "e.g. Spain",
+  "Du": "From",
+  "Budget total (€, facultatif)": "Total budget (€, optional)",
+  "Au": "To",
+  "Enregistrer": "Save",
+  "Donnez un nom aux vacances.": "Give the vacation a name.",
+  "Choisissez les dates de début et de fin.": "Choose the start and end dates.",
+  "La date de fin est avant la date de début.": "The end date is before the start date.",
+  "{n} dépense(s) déjà enregistrée(s) entre le {a} et le {b}. Les marquer pour « {trip} » ? (Loyer, salaires, épargne, virements et prélèvements prévus ne sont pas inclus.)": "{n} expense(s) already recorded between {a} and {b}. Mark them for \"{trip}\"? (Rent, salaries, savings, transfers and planned direct debits are not included.)",
+  "Supprimer l'onglet « {trip} » ?": "Delete the \"{trip}\" tab?",
+  "Ses {n} transaction(s) restent dans leurs mois ; elles ne seront simplement plus marquées vacances.": "Its {n} transaction(s) stay in their months; they just won't be marked as vacation anymore.",
+  ", {n} marquée(s) pour « {trip} »": ", {n} marked for \"{trip}\"",
+  "— Pas des vacances —": "— Not a vacation —",
+  "Les opérations vont dans leur mois comme d'habitude ; celles datées pendant les vacances sont aussi marquées pour « {trip} »": "Transactions go to their month as usual; those dated during the vacation are also marked for \"{trip}\"",
+  "Créez un onglet par voyage (ex : « Espagne », du 12 au 26 octobre) avec « + Vacances ». Les dépenses restent dans leur mois et sont simplement marquées vacances : vous voyez ici le total du voyage, par catégorie et par jour.": "Create one tab per trip (e.g. \"Spain\", 12 to 26 October) with \"+ Vacation\". Expenses stay in their month and are simply marked as vacation: here you see the trip's total, by category and per day.",
+  "{n} jour(s)": "{n} day(s)",
+  "✎ Modifier": "✎ Edit",
+  "Dépensé": "Spent",
+  "Budget": "Budget",
+  "Par jour": "Per day",
+  "Aucune autre dépense entre le {a} et le {b} à marquer.": "No other expense between {a} and {b} to mark.",
+  "Marquer {n} dépense(s) du {a} au {b} pour « {trip} » ? (Loyer, salaires, épargne, virements et prélèvements prévus ne sont pas inclus.)": "Mark {n} expense(s) from {a} to {b} for \"{trip}\"? (Rent, salaries, savings, transfers and planned direct debits are not included.)",
+  "Marquer les dépenses de la période": "Mark the period's expenses",
+  "Terminé": "Done",
+  "Modifier les budgets": "Edit budgets",
+  "Budget {cat}": "Budget {cat}",
+  "Pas de budget": "No budget",
+  "Dépassé de {x}": "Over by {x}",
+  "Atteint": "Reached",
+  "Reste {x}": "{x} left",
+  "Aucune dépense pour ces vacances pour l'instant : importez un relevé, ajoutez une dépense ou marquez celles de la période.": "No expenses for this vacation yet: import a statement, add an expense or mark the period's expenses.",
+  "Transactions des vacances — {n}": "Vacation transactions — {n}",
+  "Retirer des vacances": "Remove from vacation",
+  "Elle reste dans {m}": "It stays in {m}",
+  "Comptée aussi dans {m}.": "Also counted in {m}.",
+  "Aucune transaction marquée pour l'instant.": "No marked transactions yet.",
   "⚠ Non enregistré": "⚠ Not saved",
   "⚠ Cette modification supprimerait plus de la moitié des transactions. Rien n'a été enregistré.": "⚠ This change would delete more than half of the transactions. Nothing was saved.",
   "⚠ Ce budget a été modifié ailleurs (autre onglet, appareil ou membre). Vos dernières modifications n'ont pas été enregistrées, pour ne rien écraser.": "⚠ This budget was changed elsewhere (another tab, device or member). Your latest changes weren't saved, so nothing gets overwritten.",
@@ -1234,7 +1283,7 @@ function monthSortKey(m) { return (m.date && m.date.slice(0, 7)) || monthLabelTo
 // The month tab for today (local time). If it doesn't exist yet, the latest month before today.
 // "#depenses/<monthId>" -> { view: "depenses", key: monthId }; anything else -> home.
 function readPlaceFromUrl() {
-  const m = window.location.hash.match(/^#(accueil|depenses|epargne)(?:\/(.+))?$/);
+  const m = window.location.hash.match(/^#(accueil|depenses|epargne|vacances)(?:\/(.+))?$/);
   if (!m) return { view: "home", key: null };
   return { view: m[1] === "accueil" ? "home" : m[1], key: m[2] ? decodeURIComponent(m[2]) : null };
 }
@@ -1602,6 +1651,10 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
   // Savings accounts imported from their own bank CSV, kept apart from the budget:
   // { [accountKey]: { label, entries: [{ id, date, label, amount (+ = money in), balance|null, importSig }] } }
   const [savingsAccounts, setSavingsAccounts] = useState({});
+  // Vacations: a period starting and ending on any day, whose spending is followed on its own.
+  // Transactions stay in their month; each one spent on the trip is marked with its id (tx.tripId).
+  // [{ id, name, start: "YYYY-MM-DD", end: "YYYY-MM-DD", budgets: { [categoryId]: amount } }]
+  const [trips, setTrips] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [saveState, setSaveState] = useState("idle");
   const [showTransactions, setShowTransactions] = useState(true);
@@ -1623,6 +1676,11 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
   const initialPlace = readPlaceFromUrl();
   const [view, setView] = useState(initialPlace.view); // "home" | "depenses" | "epargne"
   const [editBudgets, setEditBudgets] = useState(false); // categories: bars (false) or the editable table (true)
+  const [selectedTrip, setSelectedTrip] = useState(initialPlace.view === "vacances" ? initialPlace.key : null);
+  const [tripForm, setTripForm] = useState(null); // { id?, name, start, end } while creating or editing a trip
+  const [openTripTx, setOpenTripTx] = useState(null);
+  const [editTripBudgets, setEditTripBudgets] = useState(false);
+  const tripCsvRef = useRef(null);
   const [selectedAccount, setSelectedAccount] = useState(initialPlace.view === "epargne" ? initialPlace.key : null); // savings account shown on the Épargne page // { salaire: bool, epargne: bool } — detail list under the "(auto)" lines
   const [dragCategoryId, setDragCategoryId] = useState(null);
   const [dragOverCategoryId, setDragOverCategoryId] = useState(null);
@@ -1687,7 +1745,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
       // On the joint account, the income category is "Revenus du foyer" (salaries belong to personal budgets).
       if (space.kind === "household") doc.categories = doc.categories.map((c) => ["salaire", "salary"].includes(normText(c.name)) ? { ...c, name: LANG === "en" ? "Household income" : "Revenus du foyer" } : c);
       setCategories(doc.categories); setMonths(sortMonthsChronologically(doc.months)); setIncome(doc.income);
-      setSavings(doc.savings); setRecurringFees(doc.recurringFees || []); setCategoryRules(doc.categoryRules || {}); setSavingsAccounts(doc.savingsAccounts || {});
+      setSavings(doc.savings); setRecurringFees(doc.recurringFees || []); setCategoryRules(doc.categoryRules || {}); setSavingsAccounts(doc.savingsAccounts || {}); setTrips(doc.trips || []);
       const fromUrl = initialPlace.view === "depenses" && doc.months.find((m) => m.id === initialPlace.key);
       setSelectedMonth(fromUrl ? fromUrl.id : currentMonthId(doc.months));
       setLoaded(true);
@@ -1699,9 +1757,10 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
     if (!loaded) return;
     const place = view === "depenses" && selectedMonth ? "#depenses/" + encodeURIComponent(selectedMonth)
       : view === "epargne" ? "#epargne" + (selectedAccount ? "/" + encodeURIComponent(selectedAccount) : "")
+      : view === "vacances" ? "#vacances" + (selectedTrip ? "/" + encodeURIComponent(selectedTrip) : "")
       : "#accueil";
     if (window.location.hash !== place) window.history.replaceState(null, "", window.location.pathname + window.location.search + place);
-  }, [loaded, view, selectedMonth, selectedAccount]);
+  }, [loaded, view, selectedMonth, selectedAccount, selectedTrip]);
   const goTo = (v) => { setView(v); const id = currentMonthId(months); if (id) setSelectedMonth(id); };
 
   // Auto-detect/create a tab for the real current calendar month. Runs once
@@ -1750,7 +1809,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
     setSaveState("saving");
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
-      const data = { ...docExtras.current, categories: rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, migratedActuals: true };
+      const data = { ...docExtras.current, categories: rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, trips, migratedActuals: true };
       const prev = lastSaved.current;
       const txCount = Object.values(transactions).reduce((n, l) => n + (l || []).length, 0);
       if (!allowShrink.current && prev.txCount >= 20 && txCount < prev.txCount / 2) { setSaveState("blocked"); return; }
@@ -1766,7 +1825,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
       setSaveState("saved");
     }, 500);
     return () => clearTimeout(saveTimer.current);
-  }, [rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, loaded, saveNonce]);
+  }, [rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, trips, loaded, saveNonce]);
 
   // ---------- Undo ----------
   // Every change to the budget data pushes the previous state onto a stack.
@@ -1781,7 +1840,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
   const [undoCount, setUndoCount] = useState(0);
   useEffect(() => {
     if (!loaded) return;
-    const snap = { categories: rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts };
+    const snap = { categories: rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, trips };
     const now = Date.now();
     if (!lastSnapshot.current) undoReadyAt.current = now + 1500;
     if (restoringUndo.current) {
@@ -1796,7 +1855,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
     }
     if (lastSnapshot.current) lastChangeAt.current = now;
     lastSnapshot.current = snap;
-  }, [rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, loaded]);
+  }, [rawCategories, months, income, savings, actuals, transactions, recurringFees, categoryRules, savingsAccounts, trips, loaded]);
 
   const undo = () => {
     const prev = undoStack.current[undoStack.current.length - 1];
@@ -1806,7 +1865,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
     restoringUndo.current = true;
     allowShrink.current = true; // undoing is an explicit choice (e.g. undoing an import)
     setCategories(prev.categories); setMonths(prev.months); setIncome(prev.income); setSavings(prev.savings);
-    setActuals(prev.actuals); setTransactions(prev.transactions); setRecurringFees(prev.recurringFees); setCategoryRules(prev.categoryRules); setSavingsAccounts(prev.savingsAccounts || {});
+    setActuals(prev.actuals); setTransactions(prev.transactions); setRecurringFees(prev.recurringFees); setCategoryRules(prev.categoryRules); setSavingsAccounts(prev.savingsAccounts || {}); setTrips(prev.trips || []);
     if (!prev.months.some((m) => m.id === selectedMonth)) setSelectedMonth(prev.months[0]?.id || null);
   };
   // Ctrl+Z / Cmd+Z undoes the last change (controlled inputs have no reliable native undo).
@@ -2523,7 +2582,10 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
     return { months: out, fromBank };
   };
 
-  const handleCsvFile = (e) => {
+  // `trip` (optional): importing from a vacation tab. Rows still go to their month as usual; the
+  // spending dated within the trip is also marked for it, including lines imported before.
+  const handleCsvFile = (e, trip) => {
+    if (trip && !trip.id) trip = null; // called by an input's onChange: no trip
     const file = e.target.files[0];
     if (!file) return;
     const targetMonth = selectedMonth; // capture now — shouldn't drift if the user switches tabs before the read finishes
@@ -2535,6 +2597,8 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
       if (parsed.error || parsed.length === 0) { window.alert(csvErrorMessage(parsed)); return; }
       const dupCount = parsed.filter((r) => r.duplicate).length;
       const newRows = parsed.filter((r) => !r.duplicate).map(({ duplicate, ...r }) => r);
+      let tripMarked = 0;
+      if (trip) for (const r of newRows) if (inTripDates(trip, r.date) && !homeOnly(r)) { r.tripId = trip.id; tripMarked++; }
 
       // Each row goes to the month tab matching ITS date (a statement from
       // 28/08 to 30/09 fills both August and September, whichever tab is
@@ -2577,6 +2641,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
         for (const [monthId, rows] of Object.entries(byMonth)) next[monthId] = [...(next[monthId] || []), ...rows];
         return next;
       });
+      if (trip) tripMarked += markTripPeriod(trip, new Set(parsed.filter((r) => r.duplicate).map((r) => r.importSig)));
       const labelOf = (id) => displayMonth(newTabs.find((x) => x.id === id)?.label || months.find((m) => m.id === id)?.label || id);
       const perMonth = Object.entries(byMonth)
         .map(([id, rows]) => t("{n} en {m}", { n: rows.length, m: labelOf(id) }) + (newTabs.some((x) => x.id === id) ? t(" (onglet créé)") : ""))
@@ -2584,6 +2649,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
       setImportSummary(
         t("{n} transaction(s) importée(s)", { n: newRows.length }) + (perMonth ? (LANG === "en" ? ": " : " : ") + perMonth : t(" pour {m}", { m: targetLabel })) +
         (dupCount > 0 ? t(", {n} déjà importée(s) ignorée(s)", { n: dupCount }) : "") +
+        (trip ? t(", {n} marquée(s) pour « {trip} »", { n: tripMarked, trip: trip.name }) : "") +
         (newRows.some((r) => r.categorySource === "keyword" || r.categorySource === "internal") ? t(", {n} catégorie(s) devinée(s) marquée(s) « ? » à vérifier", { n: newRows.filter((r) => r.categorySource === "keyword" || r.categorySource === "internal").length }) : "") +
         t(". Vérifiez/complétez leur catégorie ci-dessous dans « Transactions ».")
       );
@@ -2685,6 +2751,77 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
     setTxQuery(""); setTxCatFilter(""); setTxShowAll(true); setSelectMode(false); setOpenTx(id);
     // The new line is at the bottom of the list, open for editing: bring it into view.
     setTimeout(() => { const el = document.querySelector(".tx-item.open"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 80);
+  };
+  // ---------- Vacations ----------
+  const tripOfTx = (tx) => (tx.tripId && trips.find((tr) => tr.id === tx.tripId)) || null;
+  const inTripDates = (trip, date) => !!date && date >= trip.start && date <= trip.end;
+  // Rent, salaries, savings, transfers and planned direct debits belong to life at home: they are
+  // never marked automatically (each can still be marked by hand).
+  const homeOnly = (tx) => !!tx.feeId || [salaireCat, epargneCat, otherIncomeCat, transferCat].some((c) => c && c.id === tx.categoryId);
+  const isSpecialCat = (id) => [salaireCat, epargneCat, otherIncomeCat, transferCat].some((c) => c && c.id === id);
+  const tripTransactions = (trip) => months.flatMap((m) => (transactions[m.id] || []).filter((tx) => tx.tripId === trip.id).map((tx) => ({ ...tx, monthId: m.id })));
+  const tripSpent = (trip) => tripTransactions(trip).reduce((s, tx) => s + (isSpecialCat(tx.categoryId) ? 0 : Number(tx.amount) || 0), 0);
+  const tripDays = (trip) => Math.max(1, Math.round((Date.parse(trip.end) - Date.parse(trip.start)) / 86400000) + 1);
+  const fmtDay = (d) => { const x = new Date(d + "T00:00:00"); return isNaN(x) ? d : x.toLocaleDateString(LOCALE(), { day: "numeric", month: "short", year: "numeric" }); };
+  const setTxTrip = (monthId, txId, tripId) => setTransactions((all) => ({
+    ...all,
+    [monthId]: (all[monthId] || []).map((tx) => {
+      if (tx.id !== txId) return tx;
+      const { tripId: _, ...rest } = tx;
+      return tripId ? { ...rest, tripId } : rest;
+    }),
+  }));
+  // Marks the spending dated within the trip that isn't marked yet (only rows whose bank data is
+  // in `sigs`, if given). Returns how many; with dryRun, only counts.
+  const markTripPeriod = (trip, sigs, dryRun) => {
+    const eligible = (tx) => !tx.tripId && !homeOnly(tx) && inTripDates(trip, tx.date) && (!sigs || sigs.has(tx.importSig || signatureOf(tx)));
+    const n = months.reduce((s, m) => s + (transactions[m.id] || []).filter(eligible).length, 0);
+    if (n && !dryRun) setTransactions((all) => Object.fromEntries(Object.entries(all).map(([k, list]) => [k, (list || []).map((tx) => (eligible(tx) ? { ...tx, tripId: trip.id } : tx))])));
+    return n;
+  };
+  // The month tab for "YYYY-MM", created if missing.
+  const ensureMonthTab = (key) => {
+    const found = months.find((m) => monthSortKey(m) === key);
+    if (found) return found.id;
+    const [y, mo] = key.split("-").map(Number);
+    const name = MONTH_NAMES_FR[mo - 1];
+    const tab = { id: uid("month"), label: name.charAt(0).toUpperCase() + name.slice(1) + " " + y, date: key + "-01" };
+    setMonths((ms) => sortMonthsChronologically([...ms, tab]));
+    setIncome((inc) => ({ ...inc, [tab.id]: [] }));
+    setSavings((sv) => ({ ...sv, [tab.id]: 0 }));
+    setActuals((a) => ({ ...a, [tab.id]: {} }));
+    return tab.id;
+  };
+  const tripFormError = (f) => !f.name.trim() ? t("Donnez un nom aux vacances.") : !f.start || !f.end ? t("Choisissez les dates de début et de fin.") : f.end < f.start ? t("La date de fin est avant la date de début.") : "";
+  const saveTripForm = () => {
+    const f = tripForm;
+    if (!f || tripFormError(f)) return;
+    const fields = { name: f.name.trim(), start: f.start, end: f.end, budget: Number(f.budget) > 0 ? Number(f.budget) : 0 };
+    let trip;
+    if (f.id) { trip = { ...trips.find((x) => x.id === f.id), ...fields }; setTrips((ts) => ts.map((x) => (x.id === f.id ? { ...x, ...fields } : x))); }
+    else { trip = { id: uid("trip"), ...fields, budgets: {} }; setTrips((ts) => [...ts, trip]); }
+    setSelectedTrip(trip.id);
+    setTripForm(null);
+    const n = markTripPeriod(trip, null, true);
+    if (n && window.confirm(t("{n} dépense(s) déjà enregistrée(s) entre le {a} et le {b}. Les marquer pour « {trip} » ? (Loyer, salaires, épargne, virements et prélèvements prévus ne sont pas inclus.)", { n, a: fmtDay(trip.start), b: fmtDay(trip.end), trip: trip.name }))) markTripPeriod(trip);
+  };
+  const deleteTrip = (trip) => {
+    const n = tripTransactions(trip).length;
+    if (!window.confirm(t("Supprimer l'onglet « {trip} » ?", { trip: trip.name }) + (n ? "\n\n" + t("Ses {n} transaction(s) restent dans leurs mois ; elles ne seront simplement plus marquées vacances.", { n }) : ""))) return;
+    setTransactions((all) => Object.fromEntries(Object.entries(all).map(([k, list]) => [k, (list || []).map((tx) => { if (tx.tripId !== trip.id) return tx; const { tripId: _, ...rest } = tx; return rest; })])));
+    setTrips((ts) => ts.filter((x) => x.id !== trip.id));
+    setSelectedTrip(null);
+  };
+  const setTripBudget = (trip, catId, value) => setTrips((ts) => ts.map((x) => (x.id === trip.id ? { ...x, budgets: { ...(x.budgets || {}), [catId]: value } } : x)));
+  // Dated today during the trip; otherwise its first day. Goes into that day's month, marked for the trip.
+  const addTripExpense = (trip) => {
+    const now = new Date();
+    const today = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+    const date = inTripDates(trip, today) ? today : trip.start;
+    const monthId = ensureMonthTab(date.slice(0, 7));
+    const id = uid("tx");
+    setTransactions((tr) => ({ ...tr, [monthId]: [...(tr[monthId] || []), { id, date, label: t("Nouvelle dépense"), amount: 0, categoryId: "", tripId: trip.id }] }));
+    setOpenTripTx(id);
   };
   const toggleRecurring = (m, txId) =>
     setTransactions((t) => ({ ...t, [m]: (t[m] || []).map((tx) => (tx.id === txId ? { ...tx, recurring: !tx.recurring } : tx)) }));
@@ -2901,6 +3038,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
             <button className={view === "home" ? "active" : ""} onClick={() => goTo("home")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7"></path><path d="M5 10v10h14V10"></path></svg>{t("Accueil")}</button>
             <button className={view === "depenses" ? "active" : ""} onClick={() => goTo("depenses")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="15" rx="2"></rect><path d="M3 10h18"></path><path d="M8 3v4M16 3v4"></path></svg>{t("Dépenses")}</button>
             <button className={view === "epargne" ? "active" : ""} onClick={() => setView("epargne")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg>{t("Épargne")}</button>
+            <button className={view === "vacances" ? "active" : ""} onClick={() => setView("vacances")}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path><path d="M3 13h18"></path></svg>{t("Vacances")}</button>
           </nav>
           <div className="appbar-actions">
             <input ref={csvInputRef} type="file" accept=".csv,.txt,.tsv,text/csv,text/plain" onChange={handleCsvFile} style={{ display: "none" }} />
@@ -2982,6 +3120,173 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
           </button>
         </div>
       </React.Fragment>)}
+
+      {view === "vacances" && (() => {
+        const trip = trips.find((x) => x.id === selectedTrip) || trips[trips.length - 1] || null;
+        const f = tripForm, formErr = f ? tripFormError(f) : "";
+        const setF = (k, v) => setTripForm((x) => ({ ...x, [k]: v }));
+        const list = trip ? tripTransactions(trip).sort((a, b) => (a.date || "").localeCompare(b.date || "")) : [];
+        const spent = trip ? tripSpent(trip) : 0;
+        const days = trip ? tripDays(trip) : 1;
+        const budgets = (trip && trip.budgets) || {};
+        // The trip's own total budget if given, otherwise the sum of its category budgets.
+        const budgetTotal = Number(trip && trip.budget) > 0 ? Number(trip.budget) : Object.entries(budgets).reduce((s, [id, v]) => s + (categories.some((c) => c.id === id) ? Number(v) || 0 : 0), 0);
+        const uncategorized = list.filter((tx) => !tx.categoryId).reduce((s, tx) => s + (Number(tx.amount) || 0), 0);
+        const catRowsTrip = categories.filter((c) => !isSpecialCat(c.id)).map((c) => {
+          const cs = list.filter((tx) => tx.categoryId === c.id).reduce((s, tx) => s + (Number(tx.amount) || 0), 0);
+          const b = Number(budgets[c.id]) || 0;
+          const state = b <= 0 ? "none" : cs > b + 0.005 ? "over" : cs >= b - 0.005 ? "reached" : "";
+          const note = b <= 0 ? t("Pas de budget") : state === "over" ? t("Dépassé de {x}", { x: fmt(Math.round(cs - b)) }) : state === "reached" ? t("Atteint") : t("Reste {x}", { x: fmt(Math.round(b - cs)) });
+          return { ...c, spent: cs, budget: b, state, note, pct: b > 0 ? Math.min(100, Math.max(0, (cs / b) * 100)) : cs > 0 ? 100 : 0 };
+        }).filter((c) => editTripBudgets || Math.abs(c.spent) > 0.004 || c.budget > 0);
+        const overall = budgetTotal > 0 ? (spent > budgetTotal + 0.005 ? "over" : spent >= budgetTotal - 0.005 ? "reached" : "") : "none";
+        const monthName = (id) => displayMonth(months.find((m) => m.id === id)?.label || "");
+        return (<React.Fragment>
+          <input ref={tripCsvRef} type="file" accept=".csv,.txt,.tsv,text/csv,text/plain" onChange={(e) => handleCsvFile(e, trip)} style={{ display: "none" }} />
+          <div className="month-bar">
+            <div className="acc-pills" role="tablist" aria-label={t("Vacances")}>
+              {trips.map((x) => (
+                <button key={x.id} role="tab" aria-selected={!!trip && x.id === trip.id} className={"acc-pill" + (trip && x.id === trip.id ? " active" : "")} onClick={() => { setSelectedTrip(x.id); setOpenTripTx(null); }}>
+                  {x.name}<span className="m">{fmt(Math.round(tripSpent(x)))}</span>
+                </button>
+              ))}
+              <button className="acc-pill" style={{ borderStyle: "dashed", fontWeight: 500 }} onClick={() => setTripForm({ name: "", start: "", end: "" })}>{t("+ Vacances")}</button>
+            </div>
+            {trip && (
+              <button className="month-action primary" style={{ marginLeft: "auto" }} onClick={() => tripCsvRef.current && tripCsvRef.current.click()}
+                title={t("Les opérations vont dans leur mois comme d'habitude ; celles datées pendant les vacances sont aussi marquées pour « {trip} »", { trip: trip.name })}>{t("↑ Importer un relevé")}</button>
+            )}
+          </div>
+
+          {f && (
+            <div className="panel acc-form">
+              <div className="panel-title">{f.id ? t("Modifier les vacances") : t("Nouvelles vacances")}</div>
+              <div className="acc-form-body">
+                <label className="tx-field" style={{ gridColumn: "1 / -1" }}><span>{t("Nom")}</span>
+                  <input type="text" autoFocus value={f.name} placeholder={t("ex : Espagne")} onChange={(e) => setF("name", e.target.value)} /></label>
+                <label className="tx-field"><span>{t("Du")}</span><input type="date" value={f.start} onChange={(e) => setF("start", e.target.value)} /></label>
+                <label className="tx-field"><span>{t("Au")}</span><input type="date" value={f.end} min={f.start || undefined} onChange={(e) => setF("end", e.target.value)} /></label>
+                <label className="tx-field"><span>{t("Budget total (€, facultatif)")}</span><input type="number" min="0" value={f.budget ?? ""} onChange={(e) => setF("budget", e.target.value)} /></label>
+                <div className="tx-edit-actions" style={{ gridColumn: "1 / -1" }}>
+                  <button type="button" className="tx-btn confirm" disabled={!!formErr} onClick={saveTripForm}>{f.id ? t("Enregistrer") : t("Créer")}</button>
+                  <button type="button" className="tx-btn" onClick={() => setTripForm(null)}>{t("Annuler")}</button>
+                  {formErr && (f.name || f.start || f.end) && <span className="acc-form-err">{formErr}</span>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!trip && !f && (
+            <div className="panel"><div className="import-hint" style={{ padding: "22px 26px", fontSize: 15 }}>
+              {t("Créez un onglet par voyage (ex : « Espagne », du 12 au 26 octobre) avec « + Vacances ». Les dépenses restent dans leur mois et sont simplement marquées vacances : vous voyez ici le total du voyage, par catégorie et par jour.")}
+            </div></div>
+          )}
+
+          {trip && (<React.Fragment>
+            <div className="panel trip-card">
+              <div className="trip-head">
+                <div>
+                  <div className="home-kicker"><span>{t("Vacances")} · {fmtDay(trip.start)} → {fmtDay(trip.end)} · {t("{n} jour(s)", { n: days })}</span></div>
+                  <div className="trip-name">{trip.name}</div>
+                </div>
+                <div className="tx-edit-actions">
+                  <button type="button" className="tx-btn" onClick={() => setTripForm({ id: trip.id, name: trip.name, start: trip.start, end: trip.end, budget: trip.budget ?? "" })}>{t("✎ Modifier")}</button>
+                  <button type="button" className="tx-btn danger" onClick={() => deleteTrip(trip)}>{t("✕ Supprimer")}</button>
+                </div>
+              </div>
+              <div className="trip-figures">
+                <div><span className="hero-label">{t("Dépensé")}</span><span className="trip-big" style={{ color: overall === "over" ? "var(--red)" : undefined }}>{fmt(Math.round(spent))}</span></div>
+                <div><span className="hero-label">{t("Budget")}</span><span className="hero-num">{budgetTotal > 0 ? fmt(Math.round(budgetTotal)) : "—"}</span></div>
+                <div><span className="hero-label">{t("Par jour")}</span><span className="hero-num">{fmt(Math.round(spent / days))}</span></div>
+                <div><span className="hero-label">{t("Transactions")}</span><span className="hero-num">{list.length}</span></div>
+              </div>
+              {budgetTotal > 0 && <div className="bar-track"><div className={"bar-fill " + overall} style={{ width: Math.min(100, (spent / budgetTotal) * 100) + "%" }}></div></div>}
+              <div className="tx-edit-actions" style={{ marginTop: 16 }}>
+                <button type="button" className="tx-btn" onClick={() => addTripExpense(trip)}>{t("+ Ajouter une dépense")}</button>
+                <button type="button" className="tx-btn" onClick={() => {
+                  const n = markTripPeriod(trip, null, true);
+                  if (!n) { window.alert(t("Aucune autre dépense entre le {a} et le {b} à marquer.", { a: fmtDay(trip.start), b: fmtDay(trip.end) })); return; }
+                  if (window.confirm(t("Marquer {n} dépense(s) du {a} au {b} pour « {trip} » ? (Loyer, salaires, épargne, virements et prélèvements prévus ne sont pas inclus.)", { n, a: fmtDay(trip.start), b: fmtDay(trip.end), trip: trip.name }))) markTripPeriod(trip);
+                }}>{t("Marquer les dépenses de la période")}</button>
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="panel-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                <span>{t("Par catégorie")}</span>
+                <button type="button" className="tx-btn" onClick={() => setEditTripBudgets((v) => !v)}>{editTripBudgets ? t("Terminé") : t("Modifier les budgets")}</button>
+              </div>
+              <div className="cat-list">
+                {catRowsTrip.map((c) => (
+                  <div key={c.id} className="cat-item">
+                    <div className="cat-head">
+                      <span className="cat-name">{c.name}</span>
+                      <span className="cat-amt"><strong>{fmt(Math.round(c.spent))}</strong>
+                        {editTripBudgets
+                          ? <span style={{ color: "var(--ink-soft)" }}> / <input className="trip-budget-input" type="number" min="0" aria-label={t("Budget {cat}", { cat: c.name })} value={budgets[c.id] ?? ""} placeholder="0" onChange={(e) => setTripBudget(trip, c.id, e.target.value === "" ? "" : Number(e.target.value))} /> €</span>
+                          : <span style={{ color: "var(--ink-soft)" }}> / {c.budget > 0 ? fmt(Math.round(c.budget)) : "—"}</span>}
+                      </span>
+                    </div>
+                    <div className="bar-track"><div className={"bar-fill " + c.state} style={{ width: c.pct + "%" }}></div></div>
+                    <span className={"cat-state " + c.state}>{c.note}</span>
+                  </div>
+                ))}
+                {Math.abs(uncategorized) > 0.004 && (
+                  <div className="cat-item">
+                    <div className="cat-head"><span className="cat-name" style={{ color: "var(--red)" }}>{t("Non catégorisé (à trier)")}</span><span className="cat-amt"><strong>{fmt(Math.round(uncategorized))}</strong></span></div>
+                  </div>
+                )}
+                {catRowsTrip.length === 0 && Math.abs(uncategorized) <= 0.004 && <div className="import-hint" style={{ padding: "14px 0" }}>{t("Aucune dépense pour ces vacances pour l'instant : importez un relevé, ajoutez une dépense ou marquez celles de la période.")}</div>}
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="panel-title">{t("Transactions des vacances — {n}", { n: list.length })}</div>
+              <div className="cat-list">
+                {list.map((tx) => {
+                  const open = openTripTx === tx.id;
+                  const cat = categories.find((c) => c.id === tx.categoryId);
+                  const amount = Number(tx.amount) || 0;
+                  return (
+                    <div key={tx.id} className={"tx-item" + (open ? " open" : "")}>
+                      <div className="tx-row-wrap">
+                        <button type="button" className="tx-line" title={tx.label} onClick={() => setOpenTripTx(open ? null : tx.id)}>
+                          <span className="tx-name"><span style={{ color: "var(--ink-soft)", fontFamily: "var(--font-mono)", fontSize: 12, marginRight: 8 }}>{tx.date ? tx.date.slice(8, 10) + "/" + tx.date.slice(5, 7) : "—"}</span>{prettyTxLabel(tx.label) || <em>{t("Sans libellé")}</em>}</span>
+                          <span className={"tx-chip" + (!cat ? " none" : "")} style={cat ? chipColors(cat.id) : undefined}>{cat ? cat.name : t("Sans catégorie")}</span>
+                          <span className={"tx-amt" + (amount < 0 ? " in" : "")}>{amount < 0 ? "+" : amount > 0 ? "−" : ""}{fmtCents(Math.abs(amount))}</span>
+                        </button>
+                      </div>
+                      {open && (
+                        <div className="tx-edit">
+                          <label className="tx-field tx-f-date"><span>{t("Date")}</span>
+                            <input type="text" value={tx.date} placeholder="2026-09-30" onChange={(e) => updateTransactionField(tx.monthId, tx.id, "date", e.target.value)} /></label>
+                          <label className="tx-field tx-f-label"><span>{t("Libellé")}</span>
+                            <input type="text" autoFocus={tx.label === t("Nouvelle dépense")} value={tx.label} onChange={(e) => updateTransactionField(tx.monthId, tx.id, "label", e.target.value)} /></label>
+                          <label className="tx-field tx-f-amount"><span>{t("Montant")}</span>
+                            <input type="number" value={tx.amount} title={t("Positif = dépense, négatif = argent reçu")} onChange={(e) => updateTransactionField(tx.monthId, tx.id, "amount", parseFloat(e.target.value) || 0)} /></label>
+                          <label className="tx-field tx-f-cat"><span>{t("Catégorie")}</span>
+                            <select value={tx.categoryId} onChange={(e) => updateTransactionCategory(tx.monthId, tx.id, e.target.value)}>
+                              <option value="">{t("— Non catégorisé —")}</option>
+                              {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                              <option value="__new__">{t("+ Nouvelle catégorie…")}</option>
+                            </select></label>
+                          <div className="tx-edit-actions">
+                            <button type="button" className="tx-btn" onClick={() => { setTxTrip(tx.monthId, tx.id, ""); setOpenTripTx(null); }} title={t("Elle reste dans {m}", { m: monthName(tx.monthId) })}>{t("Retirer des vacances")}</button>
+                            <button type="button" className="tx-btn danger" onClick={() => { removeTransaction(tx.monthId, tx.id); setOpenTripTx(null); }}>{t("✕ Supprimer")}</button>
+                            <button type="button" className="tx-btn" onClick={() => setOpenTripTx(null)}>{t("Fermer")}</button>
+                          </div>
+                          <div className="tx-edit-hint">{t("Comptée aussi dans {m}.", { m: monthName(tx.monthId) })} {t("Montant positif = dépense, négatif = argent reçu.")}</div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {list.length === 0 && <div className="import-hint" style={{ padding: "14px 0" }}>{t("Aucune transaction marquée pour l'instant.")}</div>}
+              </div>
+            </div>
+          </React.Fragment>)}
+        </React.Fragment>);
+      })()}
 
       {view === "epargne" && (<React.Fragment>
         <input ref={savingsInputRef} type="file" accept=".csv,.txt,.tsv,.pdf,text/csv,text/plain,application/pdf" onChange={handleSavingsFile} style={{ display: "none" }} />
@@ -3547,6 +3852,7 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
                       <span className="tx-name">
                         {tx.recurring && <span className="tx-rec" title={t("Récurrente")}>🔁</span>}
                         {prettyTxLabel(tx.label) || <em>{t("Sans libellé")}</em>}
+                        {tripOfTx(tx) && <span className="tx-trip">✈ {tripOfTx(tx).name}</span>}
                       </span>
                       <span
                         className={"tx-chip" + (!cat ? " none" : toCheck(tx) ? " check" : "")}
@@ -3580,6 +3886,15 @@ function BudgetTracker({ household, onLogout, onRename, lang, onLang, space, spa
                             <option value="__new__">{t("+ Nouvelle catégorie…")}</option>
                           </select>
                         </label>
+                        {trips.length > 0 && (
+                          <label className="tx-field tx-f-cat">
+                            <span>{t("Vacances")}</span>
+                            <select value={tx.tripId || ""} onChange={(e) => setTxTrip(selectedMonth, tx.id, e.target.value)}>
+                              <option value="">{t("— Pas des vacances —")}</option>
+                              {trips.map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
+                            </select>
+                          </label>
+                        )}
                         <div className="tx-edit-actions">
                           {toCheck(tx) && (
                             <button type="button" className="tx-btn confirm" title={t("La catégorie sera retenue pour ce marchand")} onClick={() => updateTransactionCategory(selectedMonth, tx.id, tx.categoryId)}>
